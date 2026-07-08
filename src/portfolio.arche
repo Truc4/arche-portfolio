@@ -1,16 +1,16 @@
 /// Side-scroller proving the `camera` device as a FOLLOW-CAM with PARALLAX, over an abstract world of solid
 /// shapes: a thin flat FLOOR, background BUILDINGS (rects) in a cool indigo shade ramp, HILLS (wide
 /// triangles) on the horizon, round CLOUDS in the sky and BUSHES on the ground. Everything lives in float
-/// WORLD coordinates, projected through `camera.to_screen`. ←/→ move the PLAYER (not the camera); the camera
-/// holds still while the player roams a central deadzone, then scrolls to trail it at the edge, so the world
-/// scrolls under a fixed-on-screen player. Depth = PARALLAX + shade: further-back layers scroll slower and
+/// WORLD coordinates, projected through `camera.to_screen`. The mouse WHEEL, a touch SWIPE, or ←/→ scroll the
+/// CAMERA (`eye.x`) directly (`pan`); the world moves under a fixed viewport and the PLAYER is dragged along,
+/// clamped so it never leaves the screen (`clamp_player`). Depth = PARALLAX + shade: further-back layers scroll slower and
 /// are darker (a per-layer scale on the camera offset, pivoted on the home eye so home positions are exact).
 ///
 /// STRUCTURE: each shape kind is its OWN archetype sharing NO components with the others — Prop (rects),
 /// Hill (triangles), Round (circles: clouds + bushes), Player — each with its own projected-screen columns
 /// and its own draw pass. In arche today, writing a component SHARED across archetypes inside an eff-fan
 /// misbehaves (dropped, or broadcast across pools), so the shapes are kept fully separate. See docs/scenery.md.
-#import { gfx camera vec os text editor screen compiler }
+#import { gfx camera vec os text editor screen compiler button }
 
 // RESOLUTION: the render HEIGHT is fixed at H=1080 (a 1080p-tall image); the render WIDTH is dynamic — the
 // host (gfx.js) sizes it to the window aspect each frame and reports it via `gfx.dims`. So the scene fills
@@ -21,7 +21,7 @@ H    :: 1080;        // fixed render height
 MAXW :: 4096;        // framebuffer capacity (max render width) — MUST match MAXW in www/gfx.js
 W    :: 1920;        // nominal width passed to gfx.open (the host overrides it with the window's width)
 SPEED    :: 9.0;     // player world-units moved per frame while a key is held
-DEADZONE :: 420.0;   // half-width (world units) the player roams before the camera scrolls to follow it
+SCROLL_SPEED :: 1.0; // world units per unit of gfx.scroll (render px); 1.0 = 1:1 direct manipulation for touch
 EYE0     :: 2100.0;  // the home eye x (= initial player x); parallax pivots here so home positions are exact
 PAR_HILL :: 0.5;     // hills' parallax factor (background; scrolls at half the foreground rate)
 PLAYER_Y :: 1089.0;  // player world y (centre): PW×PW square standing with its base on the floor line
@@ -118,6 +118,13 @@ ex     :: int;   // editor panel projected screen pos (world→screen), carried 
 ey     :: int;
 sx     :: int;   // output panel projected screen pos, carried ON each Line
 sy     :: int;
+bx     :: int;   // RUN button projected screen rect, carried ON the Button
+by     :: int;
+bw     :: int;
+bh     :: int;
+blen   :: int;
+bclicked :: int;
+bwasdown :: int;
 
 PANEL_WX :: 700.0; // playground world anchor — foreground (plx = 1.0): scrolls 1:1 with the scene, no parallax
 PANEL_WY :: 300.0;
@@ -126,12 +133,15 @@ PANEL_WY :: 300.0;
 // DOM panels via the `place` seams) and the window backends (which blit the framebuffer text there) render the
 // playground in WORLD space — it scrolls with the scene, identically native + browser. The dark backing rect is
 // an 8th Prop at the same anchor (seeded in `seed`), drawn by the same gfx.rect as the buildings.
-EditBuf :: arche { ebuf :: [256]char, elen, ecur, submit, ex, ey }
+EditBuf :: arche { ebuf :: [4096]char, elen, ecur, submit, ex, ey }
 Out     :: arche { obuf :: [4096]char }
 Line    :: arche { trow, tstr :: [64]char, tlen, sx, sy }
+// A RUN button under the panels — click it to compile+run the snippet (an alternative to Ctrl-Enter/Ctrl-R).
+Button  :: arche { bx, by, bw, bh, blabel :: [8]char, blen, bclicked, bwasdown }
 [1]EditBuf ?abort;
 [1]Out(1);
 [16]Line ?abort;
+[1]Button ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -173,27 +183,35 @@ seed :: system {
   Camera.zoom  = { 1.0 };
 }
 
-/// Walk the player left/right with the input axis. `ppx` is the player's own scalar, so the write sticks.
-walk :: system eff {
+/// Scroll the CAMERA with input: keyboard arrows (`axis_x`) + mouse wheel / touch swipe (`scroll`, render px).
+/// `eye.x` is the sole scroll position — the world moves under a fixed viewport.
+pan :: system eff {
   map (query { handle }) eff {
     gfx.axis_x(handle)(dx:);
-    map (query { ppx })(ppx) eff {
-      ppx = ppx + float(dx) * SPEED;
+    gfx.scroll(handle)(sc:);
+    map (query { eye, zoom })(eye) eff {
+      eye.x = eye.x + float(dx) * SPEED + float(sc) * SCROLL_SPEED;
     };
   };
 }
 
-/// Deadzone follow-cam: the player roams ±DEADZONE world units of the eye freely (camera still); past that
-/// the eye snaps to trail the player at the deadzone edge, so the world scrolls only near the screen edges.
-follow :: system eff {
-  map (query { ppx }) eff {
-    map (query { eye, zoom })(eye) eff {
-      if (ppx - eye.x > DEADZONE) {
-        eye.x = ppx - DEADZONE;
-      }
-      if (eye.x - ppx > DEADZONE) {
-        eye.x = ppx + DEADZONE;
-      }
+/// Drag the player along so it never leaves the screen: clamp `ppx` to the camera's visible x-range (± half the
+/// live window width, inset by the player width). As `eye.x` scrolls, the bound crosses `ppx` and pulls it to the
+/// leading edge, so the player is carried along instead of scrolling off.
+clamp_player :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye }) eff {
+      map (query { ppx })(ppx) eff {
+        lo := eye.x - float(vw) * 0.5 + float(PW);
+        hi := eye.x + float(vw) * 0.5 - float(PW);
+        if (ppx < lo) {
+          ppx = lo;
+        }
+        if (ppx > hi) {
+          ppx = hi;
+        }
+      };
     };
   };
 }
@@ -335,7 +353,7 @@ draw_round :: system (query { framebuffer })(framebuffer) eff {
 draw_player :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
-    map (query { prx, pry }) eff {
+    map (query { prx, pry }) {
       y0 := pry;
       y1 := pry + PW;
       if (y0 < 0) {
@@ -419,7 +437,8 @@ seed_playground :: system eff {
   // Seed the source buffer with a starter program (same as the dom textarea). The dom editor overwrites `ebuf`
   // from its <textarea> each frame; the native window editor renders `ebuf` directly, so seeding it makes the
   // playground show a program natively instead of an empty panel.
-  insert(EditBuf { ebuf: "#import { fmt }\ngo :: system eff { fmt.printf(\"result = %d\\n\", 6 * 7); }\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0 })(_:, _ok:);
+  insert(EditBuf { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0 })(_:, _ok:);
+  insert(Button { bx: 0, by: 0, bw: 200, bh: 64, blabel: "RUN", blen: 3, bclicked: 0, bwasdown: 0 })(_:, _ok:);
 }
 
 /// Measure the seeded source once (scan `ebuf` to its NUL) so the native editor knows its length + cursor. The
@@ -427,7 +446,7 @@ seed_playground :: system eff {
 measure :: system eff {
   map (query { ebuf, elen, ecur })(ebuf, elen, ecur) eff {
     elen = 0;
-    for (; elen < 256 && ebuf[elen] != 0; elen += 1) {
+    for (; elen < ebuf.length && ebuf[elen] != 0; elen += 1) {
     }
     ecur = elen;
   };
@@ -449,7 +468,22 @@ project_panel :: system eff {
         sx = i32(s.x);
         sy = i32(s.y) + 520; // output panel below the (taller) editor
       };
+      map (query { bw, bx, by })(bx, by) eff { // the RUN button (bw selects the Button)
+        bx = i32(s.x);
+        by = i32(s.y) + 820; // below the output panel
+      };
     };
+  };
+}
+
+// Click the RUN button → raise the editor's `submit` (the same flag Ctrl-Enter/Ctrl-R raises); `run_it` compiles.
+run_button :: system eff {
+  map (query { bclicked }) eff {
+    if (bclicked == 1) {
+      map (query { submit })(submit) eff {
+        submit = 1;
+      };
+    }
   };
 }
 
@@ -459,9 +493,11 @@ run_it :: system eff {
     if (submit == 1) {
       submit = 0;
       elen = 0;
-      for (; elen < 256 && ebuf[elen] != 0; elen += 1) { }
+      for (; elen < ebuf.length && ebuf[elen] != 0; elen += 1) { }
       map (query { obuf })(obuf) eff {
-        compiler.run(ebuf, elen, obuf, 4096)(_:, obuf:);
+        // compiler.run is a func taking the output buffer + its cap; the out writes back into the queried `obuf`
+        // (no shadowing `:`). cap is obuf's own length.
+        compiler.run(ebuf, elen, obuf, obuf.length)(_:, obuf);
       };
     }
   };
@@ -502,11 +538,11 @@ populate :: system eff {
       measure,
       editor.open,
       forever(seq({
-        walk, follow,
+        pan, clamp_player,
         project, project_hill, project_round, project_player, project_text, project_panel,
         gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
-        editor.step, editor.text, editor.poll_run, run_it, populate,
-        editor.place, screen.place, editor.render, screen.render,
+        editor.step, editor.text, editor.poll_run, button.poll, run_button, run_it, populate,
+        editor.place, screen.place, button.place, editor.render, screen.render, button.render,
         gfx.present, gfx.poll, done,
       })),
     },

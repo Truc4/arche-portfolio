@@ -83,6 +83,46 @@
         addEventListener("keydown", set(true));
         addEventListener("keyup", set(false));
       }
+      // Pointer state in RENDER px (canvas backing store), read by gfx_be_mouse_*. Mouse events give CSS coords,
+      // so scale by the backing/CSS ratio — hit-tests then line up with the framebuffer the app draws into.
+      this.mx = 0; this.my = 0; this.mdown = 0;
+      const toRender = (e) => {
+        const r = c.getBoundingClientRect();
+        this.mx = Math.round((e.clientX - r.left) * (c.width / (r.width || 1)));
+        this.my = Math.round((e.clientY - r.top) * (c.height / (r.height || 1)));
+      };
+      if (typeof c.addEventListener === "function") {
+        c.addEventListener("mousemove", toRender);
+        c.addEventListener("mousedown", (e) => { toRender(e); if (e.button === 0) this.mdown = 1; });
+        addEventListener("mouseup", (e) => { if (e.button === 0) this.mdown = 0; });
+      }
+
+      // Horizontal scroll accumulator (render px), drained by gfx_be_scroll — fed by the mouse WHEEL and a TOUCH
+      // swipe. Positive = scroll the world right. Listeners are on the canvas only, so a wheel/touch over a DOM
+      // panel (editor <textarea> / output <pre> / RUN button) scrolls THAT panel, not the world — they self-gate.
+      this.scroll = 0;
+      const scaleX = () => { const r = c.getBoundingClientRect(); return c.width / (r.width || 1); };
+      let lastTouchX = 0;
+      if (typeof c.addEventListener === "function") {
+        c.addEventListener("wheel", (e) => {
+          // A vertical wheel scrolls the horizontal world; ~1 notch (deltaY≈100) → ~200px, matching x11's Button4/5.
+          this.scroll += Math.round((e.deltaX || e.deltaY) * 2.0);
+          e.preventDefault();
+        }, { passive: false });
+        c.addEventListener("touchstart", (e) => {
+          if (e.touches.length) { const r = c.getBoundingClientRect(); lastTouchX = (e.touches[0].clientX - r.left) * scaleX(); }
+        }, { passive: false });
+        c.addEventListener("touchmove", (e) => {
+          if (e.touches.length) {
+            const r = c.getBoundingClientRect();
+            const tx = (e.touches[0].clientX - r.left) * scaleX();
+            // Direct manipulation: dragging the content left (tx decreasing) moves the camera right (positive).
+            this.scroll += Math.round(lastTouchX - tx);
+            lastTouchX = tx;
+          }
+          e.preventDefault();
+        }, { passive: false });
+      }
       c.dataset.status = "running";
     },
 
@@ -171,6 +211,10 @@
         gfx_be_poll() { return 1; }, // the tab is always open; native inserts Closed here to exit
         gfx_be_axis_x() { return (self.keys.right ? 1 : 0) - (self.keys.left ? 1 : 0); },
         gfx_be_key() { return self.keyQueue.length ? self.keyQueue.shift() : 0; },
+        gfx_be_mouse_x() { return self.mx; },
+        gfx_be_mouse_y() { return self.my; },
+        gfx_be_mouse_down() { return self.mdown; },
+        gfx_be_scroll() { const s = self.scroll; self.scroll = 0; return s; }, // drain-and-clear
         gfx_be_close() {},
       };
     },
@@ -290,7 +334,11 @@
         (rt.root || document.body).appendChild(ta);
         ta.value = [
           "#import { fmt }",
-          "go :: system eff { fmt.printf(\"result = %d\\n\", 6 * 7); }",
+          "",
+          "go :: system eff {",
+          "  fmt.printf(\"result = %d\\n\", 6 * 7);",
+          "}",
+          "",
           "#run seq({ go })",
         ].join("\n");
       }
@@ -485,6 +533,53 @@
           new Uint8Array(mem.buffer, bufPtr, cap).set(bytes.subarray(0, k));
           new Uint8Array(mem.buffer)[bufPtr + k] = 0; // NUL-terminate
         },
+      };
+    },
+  });
+})();
+
+
+// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/button/dom/host.js ====
+// Browser host for the `button` device's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
+// collects it. Fulfils the button interface with a real <button>: `button_be_place` positions/sizes it (render-px
+// scaled to CSS by innerHeight/renderH, exactly like the text/editor/screen panels), `button_be_label` sets its
+// text, and a click handler raises a flag `button_be_poll` drains (edge-triggered, like gfx's key queue).
+(function () {
+  (globalThis.archeHosts ??= []).push({
+    bind(rt) {
+      this.clicked = false;
+      let b = document.getElementById("arche-button");
+      if (!b) {
+        b = document.createElement("button");
+        b.id = "arche-button";
+        b.type = "button";
+        b.style.cssText = "position:absolute;z-index:6;box-sizing:border-box;cursor:pointer;border:none;" +
+          "border-radius:6px;background:#e4694e;color:#160d0a;font:600 15px ui-sans-serif,system-ui,sans-serif;";
+        (rt.root || document.body).appendChild(b);
+      }
+      b.addEventListener("click", () => { this.clicked = true; });
+      this.b = b;
+    },
+
+    seams(rt) {
+      const self = this, dec = new TextDecoder();
+      return {
+        // Position + size at a projected screen rect (render-px), scaled to CSS-px like the other DOM panels.
+        button_be_place(x, y, w, h) {
+          const s = window.innerHeight / (rt.renderH || 1080), b = self.b;
+          b.style.left = (x * s) + "px";
+          b.style.top = (y * s) + "px";
+          b.style.width = (w * s) + "px";
+          b.style.height = (h * s) + "px";
+          b.style.fontSize = (Math.max(10, h * s * 0.42)) + "px";
+        },
+        // Set the label (rewrite only on change so a focus ring / press state isn't disturbed each frame).
+        button_be_label(ptr, n) {
+          const t = dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
+          if (self.b.textContent !== t) self.b.textContent = t;
+        },
+        // 1 once per click, then clears (drain-and-clear like gfx_be_key / editor_be_poll_run).
+        button_be_poll() { const f = self.clicked; self.clicked = false; return f ? 1 : 0; },
       };
     },
   });
