@@ -22,9 +22,16 @@ all: serve
 # editor/screen as framebuffer panels, the compiler shelling out to `arche`). The browser (`make serve`) is
 # where the DOM playground positions itself in the world; native dev renders it in the framebuffer.
 GFX ?= x11
+# LIMITATION: this BUILDS a binary then runs it, rather than `arche run` (hot-reload). The embedded compiler
+# device (compiler=clib) shells out to `arche` to run a snippet on Ctrl-R, and `arche run`'s hot-reload runtime
+# stack-overflows the instant the running app spawns a subprocess — so hot-reload + the in-app compiler can't
+# coexist yet. A built binary popens fine. Trade-off: no live scene reload here; re-run `make dev` after editing
+# src/. (The browser path — `make serve` — is unaffected; it compiles in-process via arche-compile.wasm.)
 dev:
-	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,editor=window,screen=window,compiler=clib \
-	$(ARCHE) run src/portfolio.arche
+	@mkdir -p build
+	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,editor=window,screen=window,compiler=clib,button=window \
+	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
+	ARCHE_BIN=$(ARCHE) ./build/portfolio-dev
 
 # Build the portfolio wasm — `arche build --arch=wasm32` also emits www/portfolio.hosts.js (the collected gfx +
 # text + editor + screen + compiler hosts) + copies arche-web.js. Gather the toolchain, then serve (no-cache).
