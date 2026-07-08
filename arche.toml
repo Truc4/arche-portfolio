@@ -1,0 +1,22 @@
+# arche-portfolio — a walkable portfolio world that also EMBEDS the arche playground. It composes the scene
+# devices (gfx, text, camera) from ../arche/extras with the playground devices (editor, screen, compiler) from
+# the sibling ../arche-playground. `[lib] paths` are the module-search roots. (Adjust the sibling paths if your
+# checkouts live elsewhere.)
+[lib]
+paths = [
+  "../arche/extras",
+  "../arche/stdlib",
+  "../arche-playground/editor/devices",
+  "../arche-playground/terminal/devices",
+  "../arche-playground/playground/devices",
+]
+
+# Browser (make serve): the scene renders to a <canvas> (gfx=wasm), text signs are DOM <span>s (text=dom), and
+# the embedded playground uses its DOM backends — a real <textarea> (editor=dom) + <pre> (screen=dom) + the
+# in-browser compiler (compiler=wasm). One wasm instance; arche build collects every device's host.js.
+[select]
+gfx      = "wasm"
+text     = "dom"
+editor   = "dom"
+screen   = "dom"
+compiler = "wasm"

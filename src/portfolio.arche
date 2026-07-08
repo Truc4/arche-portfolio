@@ -1,0 +1,514 @@
+/// Side-scroller proving the `camera` device as a FOLLOW-CAM with PARALLAX, over an abstract world of solid
+/// shapes: a thin flat FLOOR, background BUILDINGS (rects) in a cool indigo shade ramp, HILLS (wide
+/// triangles) on the horizon, round CLOUDS in the sky and BUSHES on the ground. Everything lives in float
+/// WORLD coordinates, projected through `camera.to_screen`. ←/→ move the PLAYER (not the camera); the camera
+/// holds still while the player roams a central deadzone, then scrolls to trail it at the edge, so the world
+/// scrolls under a fixed-on-screen player. Depth = PARALLAX + shade: further-back layers scroll slower and
+/// are darker (a per-layer scale on the camera offset, pivoted on the home eye so home positions are exact).
+///
+/// STRUCTURE: each shape kind is its OWN archetype sharing NO components with the others — Prop (rects),
+/// Hill (triangles), Round (circles: clouds + bushes), Player — each with its own projected-screen columns
+/// and its own draw pass. In arche today, writing a component SHARED across archetypes inside an eff-fan
+/// misbehaves (dropped, or broadcast across pools), so the shapes are kept fully separate. See docs/scenery.md.
+#import { gfx camera vec os text editor screen compiler }
+
+// RESOLUTION: the render HEIGHT is fixed at H=1080 (a 1080p-tall image); the render WIDTH is dynamic — the
+// host (gfx.js) sizes it to the window aspect each frame and reports it via `gfx.dims`. So the scene fills
+// any window with no bars, and a wider window shows MORE world. The framebuffer is a fixed array sized to
+// MAXW×H (the largest width we'll render); the live w×H region is written with row stride = the runtime w.
+// The whole scene is authored in pixel units at zoom 1 (screen y = world y − 180; floor top at screen 960).
+H    :: 1080;        // fixed render height
+MAXW :: 4096;        // framebuffer capacity (max render width) — MUST match MAXW in www/gfx.js
+W    :: 1920;        // nominal width passed to gfx.open (the host overrides it with the window's width)
+SPEED    :: 9.0;     // player world-units moved per frame while a key is held
+DEADZONE :: 420.0;   // half-width (world units) the player roams before the camera scrolls to follow it
+EYE0     :: 2100.0;  // the home eye x (= initial player x); parallax pivots here so home positions are exact
+PAR_HILL :: 0.5;     // hills' parallax factor (background; scrolls at half the foreground rate)
+PLAYER_Y :: 1089.0;  // player world y (centre): PW×PW square standing with its base on the floor line
+                     // (floor top at screen 960 is world y 1140).
+PW :: 102;           // player size (px) — square
+
+/// Palette — one clean, ABSTRACT system: a thin floor, a cool indigo value-ramp of building shades
+/// (`S1` darkest/furthest … `S6` lightest/nearest), dark distant hills, soft light clouds, and a single
+/// cool-warm accent for the player. Swap this block to re-theme; nothing else hard-codes a colour.
+CANVAS :: 0x12131c;   // sky / background fill
+FLOOR  :: 0x242742;   // the thin flat floor
+HILL   :: 0x2c3052;   // distant hills (behind the buildings)
+S1     :: 0x2b2f4e;   // building shades, dark/far → light/near
+S2     :: 0x343a5e;
+S3     :: 0x3f4570;
+S4     :: 0x4b5183;
+S5     :: 0x585f96;
+S6     :: 0x656caa;
+CLOUD  :: 0x9298cc;   // soft light clouds
+BUSH   :: 0x3f4570;   // ground shrubs (a mid shade)
+PLAYER :: 0xe4694e;   // the player — the one warm accent (a soft coral)
+
+rw     :: int;
+rh     :: int;
+rcolor :: int;
+rx     :: int;
+ry     :: int;
+plx    :: float;   // per-building parallax factor (1.0 = foreground/full speed, smaller = further/slower)
+ppx    :: float;   // player world x
+prx    :: int;     // player screen top-left x
+pry    :: int;     // player screen top-left y
+hpx    :: float;   // hill base-centre, world (x/y scalars — a struct-typed component can't be renamed)
+hpy    :: float;
+hhw    :: int;     // hill base half-width (px)
+hht    :: int;     // hill height (px)
+hcol   :: int;
+hsx    :: int;     // hill base-centre, screen
+hsy    :: int;
+cpx    :: float;   // round (cloud/bush) centre, world
+cpy    :: float;
+crad   :: int;     // radius (px)
+ccol   :: int;
+cplx   :: float;   // per-round parallax factor
+csx    :: int;     // round centre, screen
+csy    :: int;
+handle :: window;
+bg     :: int;
+// Text: a Sign is a WORLD-anchored label. The DRIVER owns all text logic — it projects the world anchor to
+// the screen run (tx,ty) each frame (like the buildings), then the selected `text` backend just DISPLAYS the
+// run. tx/ty/tsz/tcol/tlen/tstr are the display columns the text backend reads; twx/twy/tplx are driver-only.
+tx   :: int;        // projected screen top-left (read by the text backend)
+ty   :: int;
+tsz  :: int;        // text pixel height (backend scales the 8×8 glyphs to it)
+tcol :: int;        // 0xRRGGBB
+tlen :: int;        // live char count (tstr's [32]char type is declared inline on the Sign archetype)
+twx  :: float;      // world anchor (like a building's pos)
+twy  :: float;
+tplx :: float;      // parallax factor (1.0 = foreground, smaller = further/slower), like `plx`
+
+/// Solid-colour rectangle: `pos` world centre, `rw`/`rh` px size, `rcolor`, parallax `plx`, screen `rx`/`ry`.
+Prop :: arche { pos, rw, rh, rcolor, plx, rx, ry }
+/// Wide triangle (a hill): world base-centre `hpx`/`hpy`, `hhw` base half-width, `hht` height, apex up.
+Hill :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
+/// Filled circle (cloud in the sky / bush on the ground): world centre `cpx`/`cpy`, `crad` radius, `cplx`.
+Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
+/// The player — its own world x `ppx`, screen top-left `prx`/`pry`; size/colour are the PW/PLAYER consts.
+Player :: arche { ppx, prx, pry }
+Window :: arche { handle, bg }
+Framebuffer :: arche { framebuffer :: [MAXW * H]int }
+/// A world-anchored text label: world centre `twx`/`twy`, parallax `tplx`, its own projected screen run
+/// `tx`/`ty` + the text (`tstr`/`tlen`), size `tsz`, colour `tcol`. Its own archetype (writes only its own
+/// `tx`/`ty`), like every other drawable kind.
+Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
+
+[8]Prop(7);
+[6]Hill(3);
+[8]Round(6);
+[1]Player(1);
+[1]Window ?abort;
+[1]Framebuffer(1);
+[1]Camera(1);
+[12]Sign ?abort;
+[1]Closed;
+
+// ── The embedded playground ──────────────────────────────────────────────────────────────────────────────
+// The composed editor + screen + compiler (dom backends), positioned in the world to the LEFT. The driver owns
+// the same world data as the standalone playground, plus a `Panel` carrying the world anchor + the projected
+// screen positions of the two DOM panels (editor above, output below).
+elen   :: int;
+ecur   :: int;
+submit :: int;
+trow   :: int;   // screen output row index
+ex     :: int;   // editor panel projected screen pos (world→screen), carried ON the EditBuf
+ey     :: int;
+sx     :: int;   // output panel projected screen pos, carried ON each Line
+sy     :: int;
+
+PANEL_WX :: 700.0; // playground world anchor — foreground (plx = 1.0): scrolls 1:1 with the scene, no parallax
+PANEL_WY :: 300.0;
+
+// The editor + output carry their OWN projected screen position, so BOTH the dom backends (which position the
+// DOM panels via the `place` seams) and the window backends (which blit the framebuffer text there) render the
+// playground in WORLD space — it scrolls with the scene, identically native + browser. The dark backing rect is
+// an 8th Prop at the same anchor (seeded in `seed`), drawn by the same gfx.rect as the buildings.
+EditBuf :: arche { ebuf :: [256]char, elen, ecur, submit, ex, ey }
+Out     :: arche { obuf :: [4096]char }
+Line    :: arche { trow, tstr :: [64]char, tlen, sx, sy }
+[1]EditBuf ?abort;
+[1]Out(1);
+[16]Line ?abort;
+
+boot :: system eff {
+  gfx.open(W, H, "arche-wasm scene")(win:);
+  insert(Window { handle: win, bg: CANVAS });
+}
+
+// Clean side-scroller: a thin flat FLOOR (top at screen y=320), buildings bottom-aligned to it (world y =
+// 380 − rh/2), ordered far→near (dark/slow S1 … light/full-speed S6) so they occlude correctly; hills on
+// the horizon; clouds in the sky, bushes on the ground. World y = screen y + 60. Player starts at x=700.
+seed :: system {
+  //             floor    b1(far) b2     b3      b4     b5     b6(near)
+  Prop.pos.x  = { 2100.0,  1560.0, 600.0, 3750.0, 2760.0, 1080.0, 3240.0 };
+  Prop.pos.y  = { 1200.0,  915.0,  885.0, 900.0,  945.0,  975.0,  990.0  };
+  Prop.rw     = { 12000,   210,    270,   270,    330,    390,    510    };
+  Prop.rh     = { 120,     450,    510,   480,    390,    330,    300    };
+  Prop.rcolor = { FLOOR,   S1,     S2,    S3,     S4,     S5,     S6     };
+  // Parallax factors are exact binary fractions (…/16) — arche's wasm codegen currently mangles inexact
+  // float literals like 0.70 into bad IR, so stick to sums of powers of two here.
+  Prop.plx    = { 1.0,     0.625,  0.6875, 0.75,  0.8125, 0.875,  0.9375 };
+
+  //             h1     h2      h3
+  Hill.hpx = { 900.0, 2400.0, 3900.0 };
+  Hill.hpy = { 1140.0, 1140.0, 1140.0 };  // base on the floor line (screen 960)
+  Hill.hhw = { 660,   900,    750    };
+  Hill.hht = { 420,   570,    450    };
+  Hill.hcol = { HILL, HILL,   HILL   };
+
+  //             c1(cloud) c2      c3      b1(bush) b2      b3
+  Round.cpx  = { 1050.0,  1950.0, 3150.0, 1440.0,  2280.0, 3450.0 };
+  Round.cpy  = { 540.0,   465.0,  570.0,  1146.0,  1152.0, 1143.0 };  // bushes ~on the floor line (screen 960)
+  Round.crad = { 78,      96,     72,     48,      39,     51     };
+  Round.ccol = { CLOUD,   CLOUD,  CLOUD,  BUSH,    BUSH,   BUSH   };
+  Round.cplx = { 0.25,    0.25,   0.25,   1.0,     1.0,    1.0    };  // clouds drift slow; bushes full-speed
+
+  Player.ppx = { 2100.0 };
+
+  Camera.eye.x = { 2100.0 };
+  Camera.eye.y = { 720.0 };
+  Camera.zoom  = { 1.0 };
+}
+
+/// Walk the player left/right with the input axis. `ppx` is the player's own scalar, so the write sticks.
+walk :: system eff {
+  map (query { handle }) eff {
+    gfx.axis_x(handle)(dx:);
+    map (query { ppx })(ppx) eff {
+      ppx = ppx + float(dx) * SPEED;
+    };
+  };
+}
+
+/// Deadzone follow-cam: the player roams ±DEADZONE world units of the eye freely (camera still); past that
+/// the eye snaps to trail the player at the deadzone edge, so the world scrolls only near the screen edges.
+follow :: system eff {
+  map (query { ppx }) eff {
+    map (query { eye, zoom })(eye) eff {
+      if (ppx - eye.x > DEADZONE) {
+        eye.x = ppx - DEADZONE;
+      }
+      if (eye.x - ppx > DEADZONE) {
+        eye.x = ppx + DEADZONE;
+      }
+    };
+  };
+}
+
+/// Project the scenery rects (floor + buildings) to screen, with per-building PARALLAX: nudge the world x by
+/// `(eye − EYE0)·(1 − plx)` before `camera.to_screen`, so a plx<1 layer scrolls slower than the foreground
+/// while its home position (at eye = EYE0) is unchanged.
+project :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, rw, rh, plx, rx, ry })(rx, ry) eff {
+        wx := pos.x + (eye.x - EYE0) * (1.0 - plx);
+        s := camera.to_screen(vec.mk(wx, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        rx = i32(s.x) - rw / 2;
+        ry = i32(s.y) - rh / 2;
+      };
+    };
+  };
+}
+
+/// Project the hills' base-centres to screen (parallax PAR_HILL).
+project_hill :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { hpx, hpy, hsx, hsy })(hsx, hsy) eff {
+        wx := hpx + (eye.x - EYE0) * (1.0 - PAR_HILL);
+        s := camera.to_screen(vec.mk(wx, hpy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        hsx = i32(s.x);
+        hsy = i32(s.y);
+      };
+    };
+  };
+}
+
+/// Project the round shapes' (clouds/bushes) centres to screen (per-entity parallax `cplx`).
+project_round :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { cpx, cpy, cplx, csx, csy })(csx, csy) eff {
+        wx := cpx + (eye.x - EYE0) * (1.0 - cplx);
+        s := camera.to_screen(vec.mk(wx, cpy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        csx = i32(s.x);
+        csy = i32(s.y);
+      };
+    };
+  };
+}
+
+/// Project the player from its (ppx, PLAYER_Y) world point to its own screen top-left `prx`/`pry` (plx = 1).
+project_player :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { ppx, prx, pry })(prx, pry) eff {
+        s := camera.to_screen(vec.mk(ppx, PLAYER_Y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        prx = i32(s.x) - PW / 2;
+        pry = i32(s.y) - PW / 2;
+      };
+    };
+  };
+}
+
+/// Draw the hills: filled flat-bottom triangles, apex up, base on the floor line. Behind the buildings.
+draw_hills :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { hsx, hsy, hhw, hht, hcol }) eff {
+      apex := hsy - hht;
+      yy := apex;
+      if (yy < 0) {
+        yy = 0;
+      }
+      ybase := hsy;
+      if (ybase > vh) {
+        ybase = vh;
+      }
+      for (; yy < ybase;) {
+        half := hhw * (yy - apex) / hht;   // 0 at apex → hhw at base
+        x0 := hsx - half;
+        x1 := hsx + half;
+        if (x0 < 0) {
+          x0 = 0;
+        }
+        if (x1 > vw) {
+          x1 = vw;
+        }
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = hcol;
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+/// Draw the round shapes: filled circles (clouds and bushes), clamped to the window.
+draw_round :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { csx, csy, crad, ccol }) eff {
+      r2 := crad * crad;
+      yy := csy - crad;
+      ylim := csy + crad + 1;
+      if (yy < 0) {
+        yy = 0;
+      }
+      if (ylim > vh) {
+        ylim = vh;
+      }
+      for (; yy < ylim;) {
+        xx := csx - crad;
+        xlim := csx + crad + 1;
+        if (xx < 0) {
+          xx = 0;
+        }
+        if (xlim > vw) {
+          xlim = vw;
+        }
+        for (; xx < xlim;) {
+          dx := xx - csx;
+          dy := yy - csy;
+          if (dx * dx + dy * dy <= r2) {
+            framebuffer[yy * vw + xx] = ccol;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+/// Draw the player square (PW×PW in `PLAYER`) into the framebuffer, clamped to the window; on top.
+draw_player :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { prx, pry }) eff {
+      y0 := pry;
+      y1 := pry + PW;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      x0 := prx;
+      x1 := prx + PW;
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = PLAYER;
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+/// Seed the world signs once (in the arche_run prefix). Each is placed at a WORLD anchor with a parallax
+/// depth; `tx`/`ty` are filled by `project_text` each frame. Uppercase A–Z only (the bitmap font's range).
+// The portfolio content, authored as world-anchored signs. PLACEHOLDERS — swap the strings/positions freely.
+// twx < EYE0(2100) is LEFT of the start; the playground embeds far left (~twx 800). tplx MUST be an exact /16
+// fraction (0.25=4/16 …) or the wasm codegen mangles it. tstr is [32]char; keep tlen = exact char count.
+seed_text :: system eff {
+  // Home: the name backdrop + tagline.
+  insert(Sign { twx: 2100.0, twy: 380.0, tplx: 0.25,   tstr: "CURT REYES",         tlen: 10, tsz: 112, tcol: 0xffffff, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 2100.0, twy: 560.0, tplx: 0.4375, tstr: "LANGUAGE + SYSTEMS", tlen: 18, tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+  // Hint to walk left toward the playground.
+  insert(Sign { twx: 1550.0, twy: 500.0, tplx: 0.25,   tstr: "SCROLL LEFT",        tlen: 11, tsz: 46,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 1150.0, twy: 640.0, tplx: 0.625,  tstr: "TRY THE PLAYGROUND", tlen: 18, tsz: 40,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
+  // The PLAYGROUND label sits ABOVE the embedded panel and scrolls at the SAME speed (tplx = pplx = 1.0,
+  // foreground) so it stays pinned to it. twx ~ panel centre; twy above the editor (panel pwy=300).
+  insert(Sign { twx: 990.0,  twy: 220.0, tplx: 1.0,    tstr: "PLAYGROUND",         tlen: 10, tsz: 64,  tcol: 0xffffff, tx: 0, ty: 0 })(_:, _ok:);
+  // Projects / about, to the right.
+  insert(Sign { twx: 2760.0, twy: 700.0, tplx: 0.625,  tstr: "ARCHE LANG",         tlen: 10, tsz: 60,  tcol: S6,       tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 3350.0, twy: 840.0, tplx: 0.875,  tstr: "DATA-ORIENTED",      tlen: 13, tsz: 44,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 3850.0, twy: 600.0, tplx: 0.5,    tstr: "COMPILES TO WASM",   tlen: 16, tsz: 44,  tcol: S5,       tx: 0, ty: 0 })(_:, _ok:);
+  // Links (placeholders).
+  insert(Sign { twx: 4350.0, twy: 780.0, tplx: 0.75,   tstr: "GITHUB - CURT",      tlen: 13, tsz: 42,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 4800.0, twy: 640.0, tplx: 0.5625, tstr: "EMAIL ME",           tlen: 8,  tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+}
+
+/// Project each sign's world anchor to its screen run (`tx`/`ty`), with parallax — identical to `project`
+/// for the buildings — then centre it horizontally on the anchor by its run width (`tlen*tsz`). Writes only
+/// the sign's OWN `tx`/`ty` (single-archetype write). `text.render` then displays the run.
+project_text :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { twx, twy, tplx, tlen, tsz, tx, ty })(tx, ty) eff {
+        wx := twx + (eye.x - EYE0) * (1.0 - tplx);
+        s := camera.to_screen(vec.mk(wx, twy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        tx = i32(s.x) - (tlen * tsz) / 2;
+        ty = i32(s.y);
+      };
+    };
+  };
+}
+
+done :: map (Closed) eff {
+  os.exit(0)(_:);
+}
+
+// ── The embedded playground systems ──────────────────────────────────────────────────────────────────────
+// Place the playground panel in the world (LEFT of home) + pre-allocate its output rows.
+seed_playground :: system eff {
+  for (n := 0; n < 16; n += 1) {
+    insert(Line { trow: n, tstr: "", tlen: 0, sx: 0, sy: 0 })(_:, _ok:);
+  }
+  // Seed the source buffer with a starter program (same as the dom textarea). The dom editor overwrites `ebuf`
+  // from its <textarea> each frame; the native window editor renders `ebuf` directly, so seeding it makes the
+  // playground show a program natively instead of an empty panel.
+  insert(EditBuf { ebuf: "#import { fmt }\ngo :: system eff { fmt.printf(\"result = %d\\n\", 6 * 7); }\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0 })(_:, _ok:);
+}
+
+/// Measure the seeded source once (scan `ebuf` to its NUL) so the native editor knows its length + cursor. The
+/// dom path re-fills `ebuf`/re-scans on submit, so this is just the native starting point.
+measure :: system eff {
+  map (query { ebuf, elen, ecur })(ebuf, elen, ecur) eff {
+    elen = 0;
+    for (; elen < 256 && ebuf[elen] != 0; elen += 1) {
+    }
+    ecur = elen;
+  };
+}
+
+// Project the panel's world anchor to screen coords each frame — exactly like project_text; the editor panel
+// sits at (ex,ey), the output panel 300px below at (sx,sy). The `place` seams move the DOM to these coords.
+project_panel :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      // Foreground (plx = 1.0): the panel sits at world x = PANEL_WX and scrolls 1:1 with the scene.
+      s := camera.to_screen(vec.mk(PANEL_WX, PANEL_WY), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+      map (query { elen, ex, ey })(ex, ey) eff { // the editor (EditBuf — `elen` selects it)
+        ex = i32(s.x);
+        ey = i32(s.y);
+      };
+      map (query { trow, sx, sy })(sx, sy) eff { // the output rows (Line)
+        sx = i32(s.x);
+        sy = i32(s.y) + 520; // output panel below the (taller) editor
+      };
+    };
+  };
+}
+
+// On submit (editor.poll_run raised it on Ctrl-Enter): measure the source (filled by editor.text), compile+run.
+run_it :: system eff {
+  map (query { ebuf, elen, submit })(ebuf, elen, submit) eff {
+    if (submit == 1) {
+      submit = 0;
+      elen = 0;
+      for (; elen < 256 && ebuf[elen] != 0; elen += 1) { }
+      map (query { obuf })(obuf) eff {
+        compiler.run(ebuf, elen, obuf, 4096)(_:, obuf:);
+      };
+    }
+  };
+}
+
+// Split the captured output into the screen's output rows (NUL/newline delimited).
+populate :: system eff {
+  map (query { obuf }) eff {
+    map (query { trow, tstr, tlen })(tstr, tlen) eff {
+      p := 0;
+      r := 0;
+      for (; r < trow && obuf[p] != 0; p += 1) {
+        if (obuf[p] == 10) {
+          r = r + 1;
+        }
+      }
+      tlen = 0;
+      if (r == trow) {
+        for (; obuf[p] != 0 && obuf[p] != 10 && tlen < 64; p += 1) {
+          tstr[tlen] = obuf[p];
+          tlen = tlen + 1;
+        }
+      }
+    };
+  };
+}
+
+// Draw order (back → front): clear sky → hills → clouds/bushes → floor+buildings → player. The round shapes
+// draw BEFORE the floor+buildings, so the flat floor clips the bushes' lower halves (they sit behind it) and
+// the buildings occlude anything behind them. Clouds sit high where nothing overlaps, so they read as sky.
+#run {
+  seq(
+    {
+      boot,
+      seed,
+      seed_text,
+      seed_playground,
+      measure,
+      editor.open,
+      forever(seq({
+        walk, follow,
+        project, project_hill, project_round, project_player, project_text, project_panel,
+        gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
+        editor.step, editor.text, editor.poll_run, run_it, populate,
+        editor.place, screen.place, editor.render, screen.render,
+        gfx.present, gfx.poll, done,
+      })),
+    },
+  )
+}

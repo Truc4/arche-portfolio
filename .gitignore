@@ -1,0 +1,5 @@
+# www/ IS committed — it's the built, static site published to GitHub Pages (the app is fully client-side:
+# the compiler runs in-browser via wasm, no server). Rebuild it with `make serve` (or `make www/portfolio.wasm`).
+build/
+node_modules/
+.playwright-mcp/
