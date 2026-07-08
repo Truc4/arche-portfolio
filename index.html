@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>curt reyes · portfolio</title>
+  <style>
+    /* A walkable portfolio world (WebGL canvas + DOM text signs) that also EMBEDS the arche playground (a
+       real <textarea> + <pre>, positioned at a world anchor to the left). #app is a full-viewport positioned
+       container: the gfx host renders into the <canvas> inside it; the editor/screen hosts append their panels
+       to it and the driver's `place` seams position them absolutely over the canvas as the world scrolls. */
+    html, body { margin: 0; height: 100%; background: #12131c; overflow: hidden; }
+    #app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    #screen { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="app"><canvas id="screen" data-status="idle" tabindex="0"></canvas></div>
+
+  <!-- ONE wasm instance; archeRun merges every device host from portfolio.hosts.js (gfx + text + editor +
+       screen + compiler). The compiler host runs arche-compile.wasm (WasiFS) + the compiled program (WasiShim)
+       in-process; load wasi.js AFTER arche-web.js (both define a global WasiShim, the compiler host needs
+       wasi.js's full one with .start()). -->
+  <script src="analyzer/wasi-fs.js"></script>
+  <script src="arche-web.js"></script>
+  <script src="wasi.js"></script>
+  <script src="portfolio.hosts.js"></script>
+  <script>
+    archeRun("portfolio.wasm", { root: document.getElementById("app") });
+  </script>
+</body>
+</html>
