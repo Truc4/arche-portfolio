@@ -1,9 +1,9 @@
 /// Side-scroller proving the `camera` device as a FOLLOW-CAM with PARALLAX, over an abstract world of solid
 /// shapes: a thin flat FLOOR, background BUILDINGS (rects) in a cool indigo shade ramp, HILLS (wide
 /// triangles) on the horizon, round CLOUDS in the sky and BUSHES on the ground. Everything lives in float
-/// WORLD coordinates, projected through `camera.to_screen`. The mouse WHEEL, a touch SWIPE, or ←/→ scroll the
-/// CAMERA (`eye.x`) directly (`pan`); the world moves under a fixed viewport and the PLAYER is dragged along,
-/// clamped so it never leaves the screen (`clamp_player`). Depth = PARALLAX + shade: further-back layers scroll slower and
+/// WORLD coordinates, projected through `camera.to_screen`. The mouse WHEEL or a touch SWIPE scroll the CAMERA
+/// (`eye.x`) — the world moves under a fixed viewport and the PLAYER is dragged along, clamped so it never leaves
+/// the screen (`clamp_player`); ←/→ walk the player within the view (`walk`). Depth = PARALLAX + shade: further-back layers scroll slower and
 /// are darker (a per-layer scale on the camera offset, pivoted on the home eye so home positions are exact).
 ///
 /// STRUCTURE: each shape kind is its OWN archetype sharing NO components with the others — Prop (rects),
@@ -183,14 +183,24 @@ seed :: system {
   Camera.zoom  = { 1.0 };
 }
 
-/// Scroll the CAMERA with input: keyboard arrows (`axis_x`) + mouse wheel / touch swipe (`scroll`, render px).
-/// `eye.x` is the sole scroll position — the world moves under a fixed viewport.
-pan :: system eff {
+/// Walk the PLAYER left/right with the keyboard axis — `ppx` is the player's own scalar. `clamp_player` keeps it
+/// on-screen, so the arrows move the player within the current view (the wheel/touch pan the view itself).
+walk :: system eff {
   map (query { handle }) eff {
     gfx.axis_x(handle)(dx:);
+    map (query { ppx })(ppx) eff {
+      ppx = ppx + float(dx) * SPEED;
+    };
+  };
+}
+
+/// Scroll the CAMERA with the mouse wheel / touch swipe (`scroll`, render px). `eye.x` is the scroll position —
+/// the world moves under a fixed viewport; `clamp_player` drags the player along so it never leaves the screen.
+pan :: system eff {
+  map (query { handle }) eff {
     gfx.scroll(handle)(sc:);
     map (query { eye, zoom })(eye) eff {
-      eye.x = eye.x + float(dx) * SPEED + float(sc) * SCROLL_SPEED;
+      eye.x = eye.x + float(sc) * SCROLL_SPEED;
     };
   };
 }
@@ -403,8 +413,8 @@ seed_text :: system eff {
   insert(Sign { twx: 3350.0, twy: 840.0, tplx: 0.875,  tstr: "DATA-ORIENTED",      tlen: 13, tsz: 44,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 3850.0, twy: 600.0, tplx: 0.5,    tstr: "COMPILES TO WASM",   tlen: 16, tsz: 44,  tcol: S5,       tx: 0, ty: 0 })(_:, _ok:);
   // Links (placeholders).
-  insert(Sign { twx: 4350.0, twy: 780.0, tplx: 0.75,   tstr: "GITHUB - CURT",      tlen: 13, tsz: 42,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 4800.0, twy: 640.0, tplx: 0.5625, tstr: "EMAIL ME",           tlen: 8,  tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 4350.0, twy: 780.0, tplx: 0.75,   tstr: "GITHUB - Truc4",      tlen: 13, tsz: 42,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 4800.0, twy: 640.0, tplx: 0.5625, tstr: "EMAIL ME: curt.reyes.dev@gmail.com",           tlen: 8,  tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
 }
 
 /// Project each sign's world anchor to its screen run (`tx`/`ty`), with parallax — identical to `project`
@@ -538,7 +548,7 @@ populate :: system eff {
       measure,
       editor.open,
       forever(seq({
-        pan, clamp_player,
+        walk, pan, clamp_player,
         project, project_hill, project_round, project_player, project_text, project_panel,
         gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
         editor.step, editor.text, editor.poll_run, button.poll, run_button, run_it, populate,
