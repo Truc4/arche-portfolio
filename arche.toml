@@ -6,8 +6,7 @@
 paths = [
   "../arche/extras",
   "../arche/stdlib",
-  "../arche-playground/editor/devices",
-  "../arche-playground/terminal/devices",
+  "../arche-playground/ui/devices",
   "../arche-playground/playground/devices",
 ]
 

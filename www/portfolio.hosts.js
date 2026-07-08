@@ -268,7 +268,7 @@
 })();
 
 
-// ==== /home/curt/Code/arche-portfolio/../arche-playground/editor/devices/editor/dom/host.js ====
+// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/editor/dom/host.js ====
 // Browser host for the `editor` device's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
 // collects it. Fulfils the editor interface with a real <textarea>: the browser gives multi-line editing,
 // cursor, selection, undo, and IME for free. `open` focuses it; `text` reads its content back into the world;
@@ -336,7 +336,7 @@
 })();
 
 
-// ==== /home/curt/Code/arche-portfolio/../arche-playground/terminal/devices/screen/dom/host.js ====
+// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/screen/dom/host.js ====
 // Browser host for the `screen` device's dom backend. SHIPS WITH THE DEVICE (co-located with backend.arche);
 // `arche build --arch=wasm32` collects it into <out>.hosts.js — the browser twin of clib/screen_clib.c.
 // Registers the screen_be_* seams on the `archeHosts` global that runtime/arche-web.js assembles + drives.
