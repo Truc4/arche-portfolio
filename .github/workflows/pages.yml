@@ -1,0 +1,39 @@
+# Publish the pre-built static site in www/ to GitHub Pages on every push to master (e.g. when a PR merges).
+# The app is fully client-side — the Arche compiler runs in-browser via wasm — so www/ is committed pre-built
+# and this workflow only UPLOADS it (no compiler/toolchain needed in CI). Served at truc4.github.io/arche-portfolio
+# (or your custom domain). NOTE: CI does not compile — rebuild www/ locally (`make serve`) and commit it before
+# pushing, or the live site won't reflect your source changes.
+#
+# One-time setup: repo Settings -> Pages -> Source = "GitHub Actions".
+name: Deploy site to Pages
+
+on:
+  push:
+    branches: [master]
+    paths: ["www/**", ".github/workflows/pages.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer deploy supersede an in-flight one; don't cancel a run mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www           # the built static site (index.html + portfolio.wasm + hosts + analyzer/)
+      - id: deployment
+        uses: actions/deploy-pages@v4
