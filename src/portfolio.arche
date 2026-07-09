@@ -10,7 +10,7 @@
 /// Hill (triangles), Round (circles: clouds + bushes), Player — each with its own projected-screen columns
 /// and its own draw pass. In arche today, writing a component SHARED across archetypes inside an eff-fan
 /// misbehaves (dropped, or broadcast across pools), so the shapes are kept fully separate. See docs/scenery.md.
-#import { gfx camera vec os text editor screen compiler button }
+#import { gfx camera vec os text ui panel textedit textview button compiler }
 
 // RESOLUTION: the render HEIGHT is fixed at H=1080 (a 1080p-tall image); the render WIDTH is dynamic — the
 // host (gfx.js) sizes it to the window aspect each frame and reports it via `gfx.dims`. So the scene fills
@@ -106,44 +106,40 @@ Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 [12]Sign ?abort;
 [1]Closed;
 
-// ── The embedded playground ──────────────────────────────────────────────────────────────────────────────
-// The composed editor + screen + compiler (dom backends), positioned in the world to the LEFT. The driver owns
-// the same world data as the standalone playground, plus a `Panel` carrying the world anchor + the projected
-// screen positions of the two DOM panels (editor above, output below).
-elen   :: int;
-ecur   :: int;
-submit :: int;
-trow   :: int;   // screen output row index
-ex     :: int;   // editor panel projected screen pos (world→screen), carried ON the EditBuf
-ey     :: int;
-ew     :: int;   // playground frame width (render px; the dom frame scales it by innerHeight/renderH)
-sx     :: int;   // output panel projected screen pos, carried ON each Line
-sy     :: int;
-bx     :: int;   // RUN button projected screen rect, carried ON the Button
-by     :: int;
-bw     :: int;
-bh     :: int;
-blen   :: int;
-bclicked :: int;
-bwasdown :: int;
+// ── The embedded playground: the `ui` element family ──────────────────────────────────────────────────────
+// Composed from the ui elements (panel + textedit + textview + button) + the compiler device. The driver owns
+// ALL the columns; each element reads its screen rect + data + input from them and renders identically on its
+// window (framebuffer) or dom backend. Decoupled from gfx: `ui_input` fills the viewport/key/pointer columns
+// from gfx each frame, so no element imports gfx. `project_panel` projects the world anchor to the panel frame
+// rect + stacks the child rects with the shared `ui` layout funcs.
+vpw :: int; vph :: int;   // live viewport size (render px) — every element reads it for framebuffer stride/clip
+pnx :: int; pny :: int; pnw :: int; pnh :: int; ptlen :: int;   // panel frame rect + title length
+ecur :: int; elen :: int; submit :: int; ukey :: int;           // editor cursor/length/submit + per-frame key
+evx :: int; evy :: int; evw :: int; evh :: int;                 // editor screen rect
+olen :: int; ovx :: int; ovy :: int; ovw :: int; ovh :: int;    // output length + screen rect
+bx :: int; by :: int; bw :: int; bh :: int; blen :: int;        // RUN button rect + label length
+bclicked :: int; bwasdown :: int; umx :: int; umy :: int; umd :: int;  // click + press-edge + pointer x/y/down
 
 PANEL_WX :: 700.0; // playground world anchor — foreground (plx = 1.0): scrolls 1:1 with the scene, no parallax
 PANEL_WY :: 300.0;
-EDITOR_W :: 900;   // dom playground frame width in render px (scaled by innerHeight/renderH to CSS)
+PANEL_W  :: 900;   // playground frame width (render px; the dom backend scales it by innerHeight/renderH)
+EDIT_H   :: 520;   // editor height (render px)
+OUT_H    :: 200;   // output panel height
+BTN_W    :: 200;   // RUN button size
+BTN_H    :: 76;
 
-// The editor + output carry their OWN projected screen position, so BOTH the dom backends (which position the
-// DOM panels via the `place` seams) and the window backends (which blit the framebuffer text there) render the
-// playground in WORLD space — it scrolls with the scene, identically native + browser. The dark backing rect is
-// an 8th Prop at the same anchor (seeded in `seed`), drawn by the same gfx.rect as the buildings.
-EditBuf :: arche { ebuf :: [4096]char, elen, ecur, submit, ex, ey, ew }
-Out     :: arche { obuf :: [4096]char }
-Line    :: arche { trow, tstr :: [64]char, tlen, sx, sy }
-// A RUN button under the panels — click it to compile+run the snippet (an alternative to Ctrl-Enter/Ctrl-R).
-Button  :: arche { bx, by, bw, bh, blabel :: [8]char, blen, bclicked, bwasdown }
-[1]EditBuf ?abort;
-[1]Out(1);
-[16]Line ?abort;
-[1]Button ?abort;
+// One archetype per ui element, all sharing {vpw, vph}. The driver projects the panel anchor + stacks the child
+// rects (project_panel), fills the input columns (ui_input), and drives each element's render/step/poll systems.
+// The window backends draw into the shared framebuffer; the dom backends reconcile real elements inside the
+// panel's <div> — same columns, so native + browser render the same playground.
+Panel :: arche { pnx, pny, pnw, pnh, ptitle :: [16]char, ptlen, vpw, vph }
+Edit  :: arche { ebuf :: [4096]char, elen, ecur, submit, evx, evy, evw, evh, ukey, vpw, vph }
+Out   :: arche { obuf :: [4096]char, olen, ovx, ovy, ovw, ovh, vpw, vph }
+Btn   :: arche { bx, by, bw, bh, blabel :: [8]char, blen, bclicked, bwasdown, umx, umy, umd, vpw, vph }
+[1]Panel ?abort;
+[1]Edit ?abort;
+[1]Out ?abort;
+[1]Btn ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -441,14 +437,12 @@ done :: map (Closed) eff {
 // ── The embedded playground systems ──────────────────────────────────────────────────────────────────────
 // Place the playground panel in the world (LEFT of home) + pre-allocate its output rows.
 seed_playground :: system eff {
-  for (n := 0; n < 16; n += 1) {
-    insert(Line { trow: n, tstr: "", tlen: 0, sx: 0, sy: 0 })(_:, _ok:);
-  }
-  // Seed the source buffer with a starter program (same as the dom textarea). The dom editor overwrites `ebuf`
-  // from its <textarea> each frame; the native window editor renders `ebuf` directly, so seeding it makes the
-  // playground show a program natively instead of an empty panel.
-  insert(EditBuf { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0, ew: EDITOR_W })(_:, _ok:);
-  insert(Button { bx: 0, by: 0, bw: 200, bh: 64, blabel: "RUN", blen: 3, bclicked: 0, bwasdown: 0 })(_:, _ok:);
+  insert(Panel { pnx: 0, pny: 0, pnw: PANEL_W, pnh: 0, ptitle: "PLAYGROUND", ptlen: 10, vpw: W, vph: H })(_:, _ok:);
+  // Seed the source buffer with a starter program. The dom textedit seeds its <textarea> from this on `open`; the
+  // native window textedit renders `ebuf` directly, so seeding shows a program natively rather than an empty panel.
+  insert(Edit { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, evx: 0, evy: 0, evw: 0, evh: 0, ukey: 0, vpw: W, vph: H })(_:, _ok:);
+  insert(Out { obuf: "", olen: 0, ovx: 0, ovy: 0, ovw: 0, ovh: 0, vpw: W, vph: H })(_:, _ok:);
+  insert(Btn { bx: 0, by: 0, bw: BTN_W, bh: BTN_H, blabel: "RUN", blen: 3, bclicked: 0, bwasdown: 0, umx: 0, umy: 0, umd: 0, vpw: W, vph: H })(_:, _ok:);
 }
 
 /// Measure the seeded source once (scan `ebuf` to its NUL) so the native editor knows its length + cursor. The
@@ -462,27 +456,51 @@ measure :: system eff {
   };
 }
 
-// Project the panel's world anchor to screen coords each frame — exactly like project_text; the editor panel
-// sits at (ex,ey), the output panel 300px below at (sx,sy). The `place` seams move the DOM to these coords.
+// Project the panel's world anchor to a screen rect, then STACK the child rects (editor → output → button) down
+// the frame with the shared `ui` layout funcs. Every element reads its rect from these columns each frame, so the
+// playground scrolls 1:1 with the scene identically on native + browser.
 project_panel :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      // Foreground (plx = 1.0): the panel sits at world x = PANEL_WX and scrolls 1:1 with the scene.
-      s := camera.to_screen(vec.mk(PANEL_WX, PANEL_WY), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
-      map (query { elen, ex, ey })(ex, ey) eff { // the editor (EditBuf — `elen` selects it)
-        ex = i32(s.x);
-        ey = i32(s.y);
+      s   := camera.to_screen(vec.mk(PANEL_WX, PANEL_WY), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+      px  := i32(s.x);
+      py  := i32(s.y);
+      cx  := ui.content_x(px);          // inner content x (px + PAD)
+      cw  := ui.content_w(PANEL_W);     // inner content width
+      cy0 := ui.content_top(py);        // first content row (below the title bar)
+      cy1 := ui.next(cy0, EDIT_H);      // output row
+      cy2 := ui.next(cy1, OUT_H);       // button row
+      ph  := cy2 + BTN_H + ui.PAD - py; // total frame height (content + bottom padding)
+      map (query { pnx, pny, pnw, pnh })(pnx, pny, pnw, pnh) eff {
+        pnx = px; pny = py; pnw = PANEL_W; pnh = ph;
       };
-      map (query { trow, sx, sy })(sx, sy) eff { // the output rows (Line)
-        sx = i32(s.x);
-        sy = i32(s.y) + 520; // output panel below the (taller) editor
+      map (query { evx, evy, evw, evh })(evx, evy, evw, evh) eff {
+        evx = cx; evy = cy0; evw = cw; evh = EDIT_H;
       };
-      map (query { bw, bx, by })(bx, by) eff { // the RUN button (bw selects the Button)
-        bx = i32(s.x);
-        by = i32(s.y) + 820; // below the output panel
+      map (query { ovx, ovy, ovw, ovh })(ovx, ovy, ovw, ovh) eff {
+        ovx = cx; ovy = cy1; ovw = cw; ovh = OUT_H;
+      };
+      map (query { bx, by, bw, bh })(bx, by, bw, bh) eff {
+        bx = cx; by = cy2; bw = BTN_W; bh = BTN_H;
       };
     };
+  };
+}
+
+// Decouple the ui elements from gfx: read the viewport + key + pointer ONCE and fan them into the element input
+// columns. `{vpw, vph}` matches every element (framebuffer stride/clip); `{ukey}` feeds the native editor;
+// `{umx, umy, umd}` feeds the native button hit-test. The dom backends ignore these (real DOM events drive them).
+ui_input :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(gw:, gh:);
+    gfx.key(handle)(gk:);
+    gfx.mouse_x(handle)(gmx:);
+    gfx.mouse_y(handle)(gmy:);
+    gfx.mouse_down(handle)(gmd:);
+    map (query { vpw, vph })(vpw, vph) eff { vpw = gw; vph = gh; };
+    map (query { ukey })(ukey) eff { ukey = gk; };
+    map (query { umx, umy, umd })(umx, umy, umd) eff { umx = gmx; umy = gmy; umd = gmd; };
   };
 }
 
@@ -497,41 +515,21 @@ run_button :: system eff {
   };
 }
 
-// On submit (editor.poll_run raised it on Ctrl-Enter): measure the source (filled by editor.text), compile+run.
+// On submit (Ctrl-R via textedit.step, ⌘-Enter via textedit.poll_run, or a RUN click via run_button): rescan the
+// source length, compile+run into `obuf`, then rescan the output length so textview knows how much to show.
 run_it :: system eff {
   map (query { ebuf, elen, submit })(ebuf, elen, submit) eff {
     if (submit == 1) {
       submit = 0;
       elen = 0;
       for (; elen < ebuf.length && ebuf[elen] != 0; elen += 1) { }
-      map (query { obuf })(obuf) eff {
-        // compiler.run is a func taking the output buffer + its cap; the out writes back into the queried `obuf`
-        // (no shadowing `:`). cap is obuf's own length.
+      map (query { obuf, olen })(obuf, olen) eff {
+        // compiler.run writes the program output back into the queried `obuf` (cap = its own length).
         compiler.run(ebuf, elen, obuf, obuf.length)(_:, obuf);
+        olen = 0;
+        for (; olen < obuf.length && obuf[olen] != 0; olen += 1) { }
       };
     }
-  };
-}
-
-// Split the captured output into the screen's output rows (NUL/newline delimited).
-populate :: system eff {
-  map (query { obuf }) eff {
-    map (query { trow, tstr, tlen })(tstr, tlen) eff {
-      p := 0;
-      r := 0;
-      for (; r < trow && obuf[p] != 0; p += 1) {
-        if (obuf[p] == 10) {
-          r = r + 1;
-        }
-      }
-      tlen = 0;
-      if (r == trow) {
-        for (; obuf[p] != 0 && obuf[p] != 10 && tlen < 64; p += 1) {
-          tstr[tlen] = obuf[p];
-          tlen = tlen + 1;
-        }
-      }
-    };
   };
 }
 
@@ -546,13 +544,14 @@ populate :: system eff {
       seed_text,
       seed_playground,
       measure,
-      editor.open,
+      textedit.open,
       forever(seq({
         walk, pan, clamp_player,
+        ui_input,
         project, project_hill, project_round, project_player, project_text, project_panel,
         gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
-        editor.step, editor.text, editor.poll_run, button.poll, run_button, run_it, populate,
-        editor.place, screen.place, button.place, editor.render, screen.render, button.render,
+        textedit.step, textedit.text, textedit.poll_run, button.poll, run_button, run_it,
+        panel.render, textedit.render, textview.render, button.render,
         gfx.present, gfx.poll, done,
       })),
     },

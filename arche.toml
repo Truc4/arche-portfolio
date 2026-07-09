@@ -1,22 +1,24 @@
 # arche-portfolio — a walkable portfolio world that also EMBEDS the arche playground. It composes the scene
-# devices (gfx, text, camera) from ../arche/extras with the playground devices (editor, screen, compiler) from
-# the sibling ../arche-playground. `[lib] paths` are the module-search roots. (Adjust the sibling paths if your
-# checkouts live elsewhere.)
+# devices (gfx, text, camera) + the `ui` element family (panel/textedit/textview/button + the ui core) from
+# ../arche/extras, plus the compiler device from the sibling ../arche-playground. `[lib] paths` are the
+# module-search roots. (Adjust the sibling paths if your checkouts live elsewhere.)
 [lib]
 paths = [
   "../arche/extras",
+  "../arche/extras/ui",
   "../arche/stdlib",
-  "../arche-playground/ui/devices",
   "../arche-playground/playground/devices",
 ]
 
 # Browser (make serve): the scene renders to a <canvas> (gfx=wasm), text signs are DOM <span>s (text=dom), and
-# the embedded playground uses its DOM backends — a real <textarea> (editor=dom) + <pre> (screen=dom) + the
-# in-browser compiler (compiler=wasm). One wasm instance; arche build collects every device's host.js.
+# the embedded playground uses the ui elements' DOM backends — a framed <div> (panel=dom) holding a real
+# <textarea> (textedit=dom) + <pre> (textview=dom) + <button> (button=dom) + the in-browser compiler
+# (compiler=wasm). One wasm instance; arche build collects every device's host.js.
 [select]
 gfx      = "wasm"
 text     = "dom"
-editor   = "dom"
-screen   = "dom"
-compiler = "wasm"
+panel    = "dom"
+textedit = "dom"
+textview = "dom"
 button   = "dom"
+compiler = "wasm"

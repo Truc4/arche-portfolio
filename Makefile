@@ -29,7 +29,7 @@ GFX ?= x11
 # src/. (The browser path — `make serve` — is unaffected; it compiles in-process via arche-compile.wasm.)
 dev:
 	@mkdir -p build
-	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,editor=window,screen=window,compiler=clib,button=window \
+	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=window,textedit=window,textview=window,button=window,compiler=clib \
 	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
 	ARCHE_BIN=$(ARCHE) ./build/portfolio-dev
 
