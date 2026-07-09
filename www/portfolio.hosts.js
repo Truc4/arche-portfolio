@@ -353,10 +353,36 @@
 // Browser host for the `editor` device's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
 // collects it. Fulfils the editor interface with a real <textarea>: the browser gives multi-line editing,
 // cursor, selection, undo, and IME for free. `open` focuses it; `text` reads its content back into the world;
-// `poll_run` reports a Ctrl-Enter (⌘-Enter) so the composed playground can compile+run on it. `step`/`render`
-// are no-ops on the arche side (the textarea manages itself) — they exist only to satisfy the shared interface.
+// `poll_run` reports a Ctrl-Enter (⌘-Enter). When a composed playground calls `place`, the editor moves into a
+// shared dark FRAME (#arche-playground) as a flex child and the frame is positioned in the world; a standalone
+// editor (no `place`) stays a plain full-width textarea.
 (function () {
   const enc = new TextEncoder();
+  const STARTER = [
+    "#import { fmt }", "", "go :: system eff {", "  fmt.printf(\"result = %d\\n\", 6 * 7);", "}", "", "#run seq({ go })",
+  ].join("\n");
+
+  // The shared dark playground frame — a flex column the editor/output/button lay out inside (ordered by CSS
+  // `order`, so append order doesn't matter). Created lazily on the first `place` call.
+  function frame(rt) {
+    let f = document.getElementById("arche-playground");
+    if (!f) {
+      f = document.createElement("div");
+      f.id = "arche-playground";
+      f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;" +
+        "gap:0.6em;padding:0.85em;background:#0b0e14;border:1px solid #232838;border-radius:0.6em;" +
+        "box-shadow:0 10px 34px rgba(0,0,0,0.5);";
+      const title = document.createElement("div");
+      title.id = "arche-playground-title";
+      title.textContent = "PLAYGROUND";
+      title.style.cssText = "order:0;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0.08em;" +
+        "color:#cdd6f4;padding:0.15em 0.1em 0.55em;border-bottom:1px solid #232838;";
+      f.appendChild(title);
+      (rt.root || document.body).appendChild(f);
+    }
+    return f;
+  }
+
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
       this.runPending = false;
@@ -369,15 +395,7 @@
         ta.style.cssText = "width:100%;height:58vh;box-sizing:border-box;background:#0b0e14;color:#cdd6f4;" +
           "border:1px solid #1c2130;border-radius:6px;padding:12px;font:14px/1.5 ui-monospace,Menlo,monospace;outline:none;";
         (rt.root || document.body).appendChild(ta);
-        ta.value = [
-          "#import { fmt }",
-          "",
-          "go :: system eff {",
-          "  fmt.printf(\"result = %d\\n\", 6 * 7);",
-          "}",
-          "",
-          "#run seq({ go })",
-        ].join("\n");
+        ta.value = STARTER;
       }
       // Ctrl-Enter / ⌘-Enter = "run" — raise a flag the driver drains via editor_be_poll_run.
       ta.addEventListener("keydown", (e) => {
@@ -404,16 +422,22 @@
         // editor_be_poll_run(): 1 once after Ctrl-Enter, then clears (drain-and-clear like gfx_be_key).
         editor_be_poll_run() { const f = self.runPending; self.runPending = false; return f ? 1 : 0; },
 
-        // editor_be_place(x,y): position the textarea at a projected screen coord (render-px), scaled to CSS-px
-        // by innerHeight/renderH (exactly the text-layer scale). First call switches it to a fixed-size panel.
-        editor_be_place(x, y) {
-          const ta = self.ta, s = window.innerHeight / (rt.renderH || 1080);
-          if (ta.style.position !== "absolute") {
-            ta.style.position = "absolute";
-            ta.style.width = "580px"; ta.style.height = "320px"; ta.style.zIndex = "5";
+        // editor_be_place(x,y,w): position + WIDTH the shared frame (which the editor owns); the panels lay out
+        // inside it. On the first call the editor moves into the frame as a non-resizable flex child. Width + the
+        // frame's base font-size scale with innerHeight/renderH, so the whole playground stays a consistent
+        // world-space size (everything inside is em-relative) and the frame height is just its content.
+        editor_be_place(x, y, w) {
+          const s = window.innerHeight / (rt.renderH || 1080), f = frame(rt), ta = self.ta;
+          if (ta.parentNode !== f) {
+            ta.style.cssText = "order:1;height:22em;width:100%;box-sizing:border-box;resize:none;background:#0e121b;" +
+              "color:#cdd6f4;border:1px solid #232838;border-radius:0.4em;padding:0.7em;" +
+              "font:1em/1.5 ui-monospace,Menlo,monospace;outline:none;";
+            f.appendChild(ta);
           }
-          ta.style.left = (x * s) + "px";
-          ta.style.top = (y * s) + "px";
+          f.style.left = (x * s) + "px";
+          f.style.top = (y * s) + "px";
+          f.style.width = (w * s) + "px";
+          f.style.fontSize = (20 * s) + "px"; // base em unit — everything inside scales with it
         },
       };
     },
@@ -450,17 +474,16 @@
       },
       screen_be_present() {}, // native paces; the browser paces via rAF
 
-      // screen_be_place(x,y): position the <pre> at a projected screen coord (render-px), scaled by
-      // innerHeight/renderH. First call switches it to a fixed-size panel with its own styling.
+      // screen_be_place(x,y): the composed playground positions the shared frame (via the editor); this just
+      // moves the <pre> into that frame as an em-sized flex child (once). x/y are ignored — the frame lays it out.
       screen_be_place(x, y) {
-        const el = self.el, s = window.innerHeight / (rt.renderH || 1080);
-        if (el.style.position !== "absolute") {
-          el.style.cssText = "position:absolute;width:580px;min-height:130px;margin:0;z-index:5;background:#11151f;" +
-            "border:1px solid #1c2130;border-radius:6px;padding:12px;color:#a6e3a1;" +
-            "font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre;overflow:auto;";
+        const f = document.getElementById("arche-playground"), el = self.el;
+        if (f && el.parentNode !== f) {
+          el.style.cssText = "order:2;flex:0 0 auto;min-height:5em;max-height:12em;width:100%;box-sizing:border-box;" +
+            "margin:0;overflow:auto;background:#11151f;color:#a6e3a1;border:1px solid #232838;border-radius:0.4em;" +
+            "padding:0.7em;white-space:pre;font:0.92em/1.5 ui-monospace,Menlo,monospace;";
+          f.appendChild(el);
         }
-        el.style.left = (x * s) + "px";
-        el.style.top = (y * s) + "px";
       },
     };
   },
@@ -601,14 +624,16 @@
     seams(rt) {
       const self = this, dec = new TextDecoder();
       return {
-        // Position + size at a projected screen rect (render-px), scaled to CSS-px like the other DOM panels.
+        // button_be_place: the composed playground positions the shared frame (via the editor); this just moves
+        // the <button> into that frame as an em-sized flex child (once). x/y/w/h are ignored — the frame lays it out.
         button_be_place(x, y, w, h) {
-          const s = window.innerHeight / (rt.renderH || 1080), b = self.b;
-          b.style.left = (x * s) + "px";
-          b.style.top = (y * s) + "px";
-          b.style.width = (w * s) + "px";
-          b.style.height = (h * s) + "px";
-          b.style.fontSize = (Math.max(10, h * s * 0.42)) + "px";
+          const f = document.getElementById("arche-playground"), b = self.b;
+          if (f && b.parentNode !== f) {
+            b.style.cssText = "order:3;flex:0 0 auto;align-self:flex-start;box-sizing:border-box;cursor:pointer;" +
+              "border:none;border-radius:0.4em;padding:0.55em 1.5em;background:#e4694e;color:#160d0a;" +
+              "font:600 1em ui-sans-serif,system-ui,sans-serif;";
+            f.appendChild(b);
+          }
         },
         // Set the label (rewrite only on change so a focus ring / press state isn't disturbed each frame).
         button_be_label(ptr, n) {

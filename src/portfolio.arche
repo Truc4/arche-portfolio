@@ -116,6 +116,7 @@ submit :: int;
 trow   :: int;   // screen output row index
 ex     :: int;   // editor panel projected screen pos (world→screen), carried ON the EditBuf
 ey     :: int;
+ew     :: int;   // playground frame width (render px; the dom frame scales it by innerHeight/renderH)
 sx     :: int;   // output panel projected screen pos, carried ON each Line
 sy     :: int;
 bx     :: int;   // RUN button projected screen rect, carried ON the Button
@@ -128,12 +129,13 @@ bwasdown :: int;
 
 PANEL_WX :: 700.0; // playground world anchor — foreground (plx = 1.0): scrolls 1:1 with the scene, no parallax
 PANEL_WY :: 300.0;
+EDITOR_W :: 900;   // dom playground frame width in render px (scaled by innerHeight/renderH to CSS)
 
 // The editor + output carry their OWN projected screen position, so BOTH the dom backends (which position the
 // DOM panels via the `place` seams) and the window backends (which blit the framebuffer text there) render the
 // playground in WORLD space — it scrolls with the scene, identically native + browser. The dark backing rect is
 // an 8th Prop at the same anchor (seeded in `seed`), drawn by the same gfx.rect as the buildings.
-EditBuf :: arche { ebuf :: [4096]char, elen, ecur, submit, ex, ey }
+EditBuf :: arche { ebuf :: [4096]char, elen, ecur, submit, ex, ey, ew }
 Out     :: arche { obuf :: [4096]char }
 Line    :: arche { trow, tstr :: [64]char, tlen, sx, sy }
 // A RUN button under the panels — click it to compile+run the snippet (an alternative to Ctrl-Enter/Ctrl-R).
@@ -405,9 +407,7 @@ seed_text :: system eff {
   // Hint to walk left toward the playground.
   insert(Sign { twx: 1550.0, twy: 500.0, tplx: 0.25,   tstr: "SCROLL LEFT",        tlen: 11, tsz: 46,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 1150.0, twy: 640.0, tplx: 0.625,  tstr: "TRY THE PLAYGROUND", tlen: 18, tsz: 40,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
-  // The PLAYGROUND label sits ABOVE the embedded panel and scrolls at the SAME speed (tplx = pplx = 1.0,
-  // foreground) so it stays pinned to it. twx ~ panel centre; twy above the editor (panel pwy=300).
-  insert(Sign { twx: 990.0,  twy: 220.0, tplx: 1.0,    tstr: "PLAYGROUND",         tlen: 10, tsz: 64,  tcol: 0xffffff, tx: 0, ty: 0 })(_:, _ok:);
+  // (The "PLAYGROUND" label is now the dom frame's own title bar — see the editor dom host — not a world sign.)
   // Projects / about, to the right.
   insert(Sign { twx: 2760.0, twy: 700.0, tplx: 0.625,  tstr: "ARCHE LANG",         tlen: 10, tsz: 60,  tcol: S6,       tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 3350.0, twy: 840.0, tplx: 0.875,  tstr: "DATA-ORIENTED",      tlen: 13, tsz: 44,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
@@ -447,7 +447,7 @@ seed_playground :: system eff {
   // Seed the source buffer with a starter program (same as the dom textarea). The dom editor overwrites `ebuf`
   // from its <textarea> each frame; the native window editor renders `ebuf` directly, so seeding it makes the
   // playground show a program natively instead of an empty panel.
-  insert(EditBuf { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0 })(_:, _ok:);
+  insert(EditBuf { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, ex: 0, ey: 0, ew: EDITOR_W })(_:, _ok:);
   insert(Button { bx: 0, by: 0, bw: 200, bh: 64, blabel: "RUN", blen: 3, bclicked: 0, bwasdown: 0 })(_:, _ok:);
 }
 
