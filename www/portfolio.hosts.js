@@ -350,11 +350,6 @@
 
 
 // ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/panel/dom/host.js ====
-// Browser host for the `panel` element's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
-// collects it into <out>.hosts.js. Fulfils `panel_be_render` with a real framed <div> (#ui-panel): a dark,
-// bordered, rounded, shadowed container with a title bar. The editor/output/button dom elements append INTO it
-// (they find #ui-panel), so the panel is the shared frame — the browser twin of the window backend's
-// framebuffer rect + title. It's a JS host (the wasm import target), not a C shim.
 (function () {
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
@@ -363,9 +358,6 @@
       if (!f) {
         f = document.createElement("div");
         f.id = "ui-panel";
-        // Flex column: the title bar first, then the element children (editor/output/button) the other dom
-        // backends append. Render-px metrics are applied as em (font-size set in panel_be_render), so the whole
-        // panel scales with the viewport exactly like its native framebuffer twin.
         f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;" +
           "gap:0.6em;padding:0.85em;background:#0b0e14;border:1px solid #232838;border-radius:0.6em;" +
           "box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
@@ -382,16 +374,13 @@
     seams(rt) {
       const self = this;
       return {
-        // panel_be_render(x,y,w,h, titlePtr, n): position + size #ui-panel (render-px → CSS-px by
-        // innerHeight/renderH) and set the title text. vpw/vph aren't needed here — the DOM scales, it doesn't
-        // stride a framebuffer.
         panel_be_render(x, y, w, h, ptr, n) {
           const s = window.innerHeight / (rt.renderH || 1080), f = self.frame;
           f.style.left = (x * s) + "px";
           f.style.top = (y * s) + "px";
           f.style.width = (w * s) + "px";
           f.style.height = (h * s) + "px";
-          f.style.fontSize = (20 * s) + "px"; // em base the title + child panels inherit
+          f.style.fontSize = (20 * s) + "px";
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           const tt = document.getElementById("ui-panel-title");
           if (tt && tt.textContent !== t) tt.textContent = t;
@@ -403,10 +392,6 @@
 
 
 // ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/textedit/dom/host.js ====
-// Browser host for `textedit`'s dom backend — SHIPS WITH THE DEVICE. Fulfils textedit_be_* with a real
-// <textarea> (#ui-textedit) that mounts inside the panel frame (#ui-panel). `open` seeds it from the driver's
-// buffer + focuses; `text` copies its value into the driver buffer; `poll_run` reports ⌘/Ctrl-Enter. The window
-// twin edits + draws the same buffer in the framebuffer.
 (function () {
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
@@ -432,7 +417,6 @@
     seams(rt) {
       const self = this;
       return {
-        // Mount into the panel frame; seed the textarea from the driver's buffer once (read to the NUL); focus.
         textedit_be_open(ptr, n) {
           const f = document.getElementById("ui-panel");
           if (f && self.ta.parentNode !== f) f.appendChild(self.ta);
@@ -444,7 +428,6 @@
           }
           self.ta.focus();
         },
-        // textarea value → the driver buffer, NUL-terminated (the arche side rescans elen).
         textedit_be_text(bufPtr, cap) {
           const bytes = self.enc.encode(self.ta.value);
           const k = Math.min(bytes.length, cap - 1);
@@ -460,9 +443,6 @@
 
 
 // ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/textview/dom/host.js ====
-// Browser host for `textview`'s dom backend — SHIPS WITH THE DEVICE. Fulfils `textview_be_render` with a <pre>
-// that mounts inside the panel frame (#ui-panel) and shows the driver's output buffer. The window twin blits the
-// same buffer into the framebuffer.
 (function () {
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
@@ -481,7 +461,6 @@
     seams(rt) {
       const self = this;
       return {
-        // Mount into the panel frame once it exists (find-and-move), then set the text.
         textview_be_render(ptr, n) {
           const f = document.getElementById("ui-panel");
           if (f && self.el.parentNode !== f) f.appendChild(self.el);
@@ -495,9 +474,6 @@
 
 
 // ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/button/dom/host.js ====
-// Browser host for `button`'s dom backend — SHIPS WITH THE DEVICE. Fulfils button_be_label/poll with a real
-// <button> (#ui-button) that mounts inside the panel frame (#ui-panel); its click raises a flag `poll` drains
-// (edge-triggered, once per click). The window twin draws a rect + hit-tests the pointer.
 (function () {
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
@@ -519,7 +495,6 @@
     seams(rt) {
       const self = this;
       return {
-        // Mount into the panel frame once it exists, then set the label (only on change, to preserve focus/press).
         button_be_label(ptr, n) {
           const f = document.getElementById("ui-panel");
           if (f && self.b.parentNode !== f) f.appendChild(self.b);
