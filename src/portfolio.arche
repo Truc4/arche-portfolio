@@ -75,14 +75,6 @@ Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 [12]Sign ?abort;
 [1]Closed;
 
-vpw :: int; vph :: int;
-pnx :: int; pny :: int; pnw :: int; pnh :: int; ptlen :: int;
-ecur :: int; elen :: int; submit :: int; ukey :: int;
-evx :: int; evy :: int; evw :: int; evh :: int;
-olen :: int; ovx :: int; ovy :: int; ovw :: int; ovh :: int;
-bx :: int; by :: int; bw :: int; bh :: int; blen :: int;
-bclicked :: int; bwasdown :: int; umx :: int; umy :: int; umd :: int;
-
 PANEL_WX :: 700.0;
 PANEL_WY :: 300.0;
 PANEL_W  :: 900;
@@ -91,14 +83,14 @@ OUT_H    :: 200;
 BTN_W    :: 200;
 BTN_H    :: 76;
 
-Panel :: arche { pnx, pny, pnw, pnh, ptitle :: [16]char, ptlen, vpw, vph }
-Edit  :: arche { ebuf :: [4096]char, elen, ecur, submit, evx, evy, evw, evh, ukey, vpw, vph }
-Out   :: arche { obuf :: [4096]char, olen, ovx, ovy, ovw, ovh, vpw, vph }
-Btn   :: arche { bx, by, bw, bh, blabel :: [8]char, blen, bclicked, bwasdown, umx, umy, umd, vpw, vph }
+Panel  :: arche { screen, size, title :: [16]char, len, view }
+Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view }
+Output :: arche { screen, size, output :: [4096]char, len, view }
+Button :: arche { screen, size, label :: [8]char, len, clicked, wasdown, mouse, mouse_down, view }
 [1]Panel ?abort;
-[1]Edit ?abort;
-[1]Out ?abort;
-[1]Btn ?abort;
+[1]Editor ?abort;
+[1]Output ?abort;
+[1]Button ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -357,22 +349,22 @@ done :: map (Closed) eff {
 }
 
 seed_playground :: system eff {
-  insert(Panel { pnx: 0, pny: 0, pnw: PANEL_W, pnh: 0, ptitle: "PLAYGROUND", ptlen: 10, vpw: W, vph: H })(_:, _ok:);
-  insert(Edit { ebuf: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", elen: 0, ecur: 0, submit: 0, evx: 0, evy: 0, evw: 0, evh: 0, ukey: 0, vpw: W, vph: H })(_:, _ok:);
-  insert(Out { obuf: "", olen: 0, ovx: 0, ovy: 0, ovw: 0, ovh: 0, vpw: W, vph: H })(_:, _ok:);
-  insert(Btn { bx: 0, by: 0, bw: BTN_W, bh: BTN_H, blabel: "RUN", blen: 3, bclicked: 0, bwasdown: 0, umx: 0, umy: 0, umd: 0, vpw: W, vph: H })(_:, _ok:);
+  insert(Panel { screen: (0, 0), size: (0, 0), title: "PLAYGROUND", len: 10, view: (0, 0) })(_:, _ok:);
+  insert(Editor { screen: (0, 0), size: (0, 0), source: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", len: 0, cursor: 0, submit: 0, key: 0, view: (0, 0) })(_:, _ok:);
+  insert(Output { screen: (0, 0), size: (0, 0), output: "", len: 0, view: (0, 0) })(_:, _ok:);
+  insert(Button { screen: (0, 0), size: (0, 0), label: "RUN", len: 3, clicked: 0, wasdown: 0, mouse: (0, 0), mouse_down: 0, view: (0, 0) })(_:, _ok:);
 }
 
 measure :: system eff {
-  map (query { ebuf, elen, ecur })(ebuf, elen, ecur) eff {
-    elen = 0;
-    for (; elen < ebuf.length && ebuf[elen] != 0; elen += 1) {
+  map (query { source, len, cursor })(len, cursor) eff {
+    len = 0;
+    for (; len < source.length && source[len] != 0; len += 1) {
     }
-    ecur = elen;
+    cursor = len;
   };
 }
 
-project_panel :: system eff {
+layout :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
@@ -385,17 +377,17 @@ project_panel :: system eff {
       cy1 := ui.next(cy0, EDIT_H);
       cy2 := ui.next(cy1, OUT_H);
       ph  := cy2 + BTN_H + ui.PAD - py;
-      map (query { pnx, pny, pnw, pnh })(pnx, pny, pnw, pnh) eff {
-        pnx = px; pny = py; pnw = PANEL_W; pnh = ph;
+      map (query { title, screen, size })(screen, size) eff {
+        screen.x = px; screen.y = py; size.w = PANEL_W; size.h = ph;
       };
-      map (query { evx, evy, evw, evh })(evx, evy, evw, evh) eff {
-        evx = cx; evy = cy0; evw = cw; evh = EDIT_H;
+      map (query { source, screen, size })(screen, size) eff {
+        screen.x = cx; screen.y = cy0; size.w = cw; size.h = EDIT_H;
       };
-      map (query { ovx, ovy, ovw, ovh })(ovx, ovy, ovw, ovh) eff {
-        ovx = cx; ovy = cy1; ovw = cw; ovh = OUT_H;
+      map (query { output, screen, size })(screen, size) eff {
+        screen.x = cx; screen.y = cy1; size.w = cw; size.h = OUT_H;
       };
-      map (query { bx, by, bw, bh })(bx, by, bw, bh) eff {
-        bx = cx; by = cy2; bw = BTN_W; bh = BTN_H;
+      map (query { label, screen, size })(screen, size) eff {
+        screen.x = cx; screen.y = cy2; size.w = BTN_W; size.h = BTN_H;
       };
     };
   };
@@ -408,15 +400,15 @@ ui_input :: system eff {
     gfx.mouse_x(handle)(gmx:);
     gfx.mouse_y(handle)(gmy:);
     gfx.mouse_down(handle)(gmd:);
-    map (query { vpw, vph })(vpw, vph) eff { vpw = gw; vph = gh; };
-    map (query { ukey })(ukey) eff { ukey = gk; };
-    map (query { umx, umy, umd })(umx, umy, umd) eff { umx = gmx; umy = gmy; umd = gmd; };
+    map (query { view })(view) eff { view.w = gw; view.h = gh; };
+    map (query { key })(key) eff { key = gk; };
+    map (query { mouse, mouse_down })(mouse, mouse_down) eff { mouse.x = gmx; mouse.y = gmy; mouse_down = gmd; };
   };
 }
 
 run_button :: system eff {
-  map (query { bclicked }) eff {
-    if (bclicked == 1) {
+  map (query { clicked }) eff {
+    if (clicked == 1) {
       map (query { submit })(submit) eff {
         submit = 1;
       };
@@ -425,15 +417,16 @@ run_button :: system eff {
 }
 
 run_it :: system eff {
-  map (query { ebuf, elen, submit })(ebuf, elen, submit) eff {
+  map (query { source, len, submit })(len, submit) eff {
     if (submit == 1) {
       submit = 0;
-      elen = 0;
-      for (; elen < ebuf.length && ebuf[elen] != 0; elen += 1) { }
-      map (query { obuf, olen })(obuf, olen) eff {
-        compiler.run(ebuf, elen, obuf, obuf.length)(_:, obuf);
-        olen = 0;
-        for (; olen < obuf.length && obuf[olen] != 0; olen += 1) { }
+      len = 0;
+      for (; len < source.length && source[len] != 0; len += 1) { }
+      n := len;
+      map (query { output, len })(len) eff {
+        compiler.run(source, n, output, output.length)(_:, output);
+        len = 0;
+        for (; len < output.length && output[len] != 0; len += 1) { }
       };
     }
   };
@@ -451,7 +444,7 @@ run_it :: system eff {
       forever(seq({
         walk, pan, clamp_player,
         ui_input,
-        project, project_hill, project_round, project_player, project_text, project_panel,
+        project, project_hill, project_round, project_player, project_text, layout,
         gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
         textedit.step, textedit.text, textedit.poll_run, button.poll, run_button, run_it,
         panel.render, textedit.render, textview.render, button.render,
