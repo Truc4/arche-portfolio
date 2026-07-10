@@ -357,11 +357,10 @@ seed_playground :: system eff {
 
 measure :: system eff {
   map (query { source, len, cursor })(len, cursor) eff {
-    n := 0;
-    for (; n < source.length && source[n] != 0; n += 1) {
+    len = 0;
+    for (; len < source.length && source[len] != 0; len += 1) {
     }
-    len = n;
-    cursor = n;
+    cursor = len;
   };
 }
 
@@ -421,14 +420,13 @@ run_it :: system eff {
   map (query { source, len, submit })(len, submit) eff {
     if (submit == 1) {
       submit = 0;
-      n := 0;
-      for (; n < source.length && source[n] != 0; n += 1) { }
-      len = n;
+      len = 0;
+      for (; len < source.length && source[len] != 0; len += 1) { }
+      n := len;
       map (query { output, len })(len) eff {
         compiler.run(source, n, output, output.length)(_:, output);
-        m := 0;
-        for (; m < output.length && output[m] != 0; m += 1) { }
-        len = m;
+        len = 0;
+        for (; len < output.length && output[len] != 0; len += 1) { }
       };
     }
   };

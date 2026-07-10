@@ -12,6 +12,35 @@
     html, body { margin: 0; height: 100%; background: #12131c; overflow: hidden; }
     #app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
     #screen { display: block; width: 100vw; height: 100vh; }
+
+    /* The world signs (text=dom) are <span>s in #text-layer that opt into pointer-events so they're
+       selectable — but that swallows wheel/touch over them and breaks scroll-to-pan. Make them inert so
+       the wheel/touch fall through to the gfx <canvas> underneath. */
+    #text-layer span { pointer-events: none !important; }
+
+    /* Playground panel: the DOM backends stack editor→output→button in a flex column. Re-lay it as a grid so
+       the editor and output sit SIDE BY SIDE (shorter panel), let it size to content instead of the tall
+       stacked height the arche layout forces, and nudge the whole panel up a bit. (These override the hosts'
+       inline styles; the native window backend keeps its own stacked layout.) */
+    #ui-panel {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "title  title"
+        "editor output"
+        "button button";
+      gap: 0.6em !important;
+      height: auto !important;
+      align-content: start;
+      transform: translateY(-14%);
+    }
+    #ui-panel-title { grid-area: title; }
+    #ui-textedit { grid-area: editor; height: 15em !important; }
+    #ui-textview {
+      grid-area: output; height: 15em !important;
+      min-height: 0 !important; max-height: none !important;
+    }
+    #ui-button { grid-area: button; justify-self: start; }
   </style>
 </head>
 <body>
