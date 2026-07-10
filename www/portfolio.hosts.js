@@ -358,13 +358,14 @@
       if (!f) {
         f = document.createElement("div");
         f.id = "ui-panel";
-        f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;" +
-          "gap:0.6em;padding:0.85em;background:#0b0e14;border:1px solid #232838;border-radius:0.6em;" +
-          "box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
+        // No flexbox/padding: children are absolutely positioned from the driver's projected rects (the same
+        // `layout` the native window backend reads), so native + browser lay out identically.
+        f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;background:#0b0e14;" +
+          "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
         const t = document.createElement("div");
         t.id = "ui-panel-title";
-        t.style.cssText = "order:0;flex:0 0 auto;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
-          "letter-spacing:0.08em;color:#cdd6f4;padding:0.15em 0.1em 0.55em;border-bottom:1px solid #232838;";
+        t.style.cssText = "position:absolute;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
+          "letter-spacing:0.08em;color:#cdd6f4;white-space:nowrap;";
         f.appendChild(t);
         (rt.root || document.body).appendChild(f);
       }
@@ -376,6 +377,9 @@
       return {
         panel_be_render(x, y, w, h, ptr, n) {
           const s = window.innerHeight / (rt.renderH || 1080), f = self.frame;
+          // Publish the panel origin + scale so each element host can position itself relative to the panel.
+          // panel.render runs before the element renders each frame, so these are fresh. (18 = ui.PAD.)
+          rt._uiScale = s; rt._uiPanelX = x; rt._uiPanelY = y;
           f.style.left = (x * s) + "px";
           f.style.top = (y * s) + "px";
           f.style.width = (w * s) + "px";
@@ -383,7 +387,11 @@
           f.style.fontSize = (20 * s) + "px";
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           const tt = document.getElementById("ui-panel-title");
-          if (tt && tt.textContent !== t) tt.textContent = t;
+          if (tt) {
+            if (tt.textContent !== t) tt.textContent = t;
+            tt.style.left = (18 * s) + "px";
+            tt.style.top = (18 * s) + "px";
+          }
         },
       };
     },
@@ -404,7 +412,7 @@
         ta.id = "ui-textedit";
         ta.spellcheck = false;
         ta.setAttribute("autocomplete", "off");
-        ta.style.cssText = "order:1;height:22em;width:100%;box-sizing:border-box;resize:none;background:#0e121b;" +
+        ta.style.cssText = "position:absolute;box-sizing:border-box;resize:none;background:#0e121b;" +
           "color:#cdd6f4;border:1px solid #232838;border-radius:0.4em;padding:0.7em;" +
           "font:1em/1.5 ui-monospace,Menlo,monospace;outline:none;";
         (rt.root || document.body).appendChild(ta);
@@ -436,6 +444,15 @@
           new Uint8Array(mem.buffer)[bufPtr + k] = 0;
         },
         textedit_be_poll_run() { const f = self.runPending; self.runPending = false; return f ? 1 : 0; },
+        // Position the <textarea> from the driver's projected rect (render px), relative to the panel origin.
+        textedit_be_place(x, y, w, h) {
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          const ta = self.ta;
+          ta.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          ta.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          ta.style.width = (w * s) + "px";
+          ta.style.height = (h * s) + "px";
+        },
       };
     },
   });
@@ -451,7 +468,7 @@
       if (!el) {
         el = document.createElement("pre");
         el.id = "ui-textview";
-        el.style.cssText = "order:2;flex:0 0 auto;min-height:5em;max-height:12em;width:100%;box-sizing:border-box;" +
+        el.style.cssText = "position:absolute;box-sizing:border-box;" +
           "margin:0;overflow:auto;background:#11151f;color:#a6e3a1;border:1px solid #232838;border-radius:0.4em;" +
           "padding:0.7em;white-space:pre;font:0.92em/1.5 ui-monospace,Menlo,monospace;";
         (rt.root || document.body).appendChild(el);
@@ -461,11 +478,16 @@
     seams(rt) {
       const self = this;
       return {
-        textview_be_render(ptr, n) {
+        textview_be_render(ptr, n, x, y, w, h) {
           const f = document.getElementById("ui-panel");
           if (f && self.el.parentNode !== f) f.appendChild(self.el);
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           if (self.el.textContent !== t) self.el.textContent = t;
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          self.el.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          self.el.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          self.el.style.width = (w * s) + "px";
+          self.el.style.height = (h * s) + "px";
         },
       };
     },
@@ -484,8 +506,8 @@
         b = document.createElement("button");
         b.id = "ui-button";
         b.type = "button";
-        b.style.cssText = "order:3;flex:0 0 auto;align-self:flex-start;box-sizing:border-box;cursor:pointer;" +
-          "border:none;border-radius:0.4em;padding:0.55em 1.5em;background:#e4694e;color:#160d0a;" +
+        b.style.cssText = "position:absolute;box-sizing:border-box;cursor:pointer;" +
+          "border:none;border-radius:0.4em;background:#e4694e;color:#160d0a;" +
           "font:600 1em ui-sans-serif,system-ui,sans-serif;";
         (rt.root || document.body).appendChild(b);
       }
@@ -495,11 +517,16 @@
     seams(rt) {
       const self = this;
       return {
-        button_be_label(ptr, n) {
+        button_be_label(ptr, n, x, y, w, h) {
           const f = document.getElementById("ui-panel");
           if (f && self.b.parentNode !== f) f.appendChild(self.b);
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           if (self.b.textContent !== t) self.b.textContent = t;
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          self.b.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          self.b.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          self.b.style.width = (w * s) + "px";
+          self.b.style.height = (h * s) + "px";
         },
         button_be_poll() { const f = self.clicked; self.clicked = false; return f ? 1 : 0; },
       };

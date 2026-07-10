@@ -47,7 +47,6 @@ cplx   :: float;
 csx    :: int;
 csy    :: int;
 handle :: window;
-bg     :: int;
 tx   :: int;
 ty   :: int;
 tsz  :: int;
@@ -76,16 +75,21 @@ Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 [1]Closed;
 
 PANEL_WX :: 700.0;
-PANEL_WY :: 300.0;
-PANEL_W  :: 900;
-EDIT_H   :: 520;
-OUT_H    :: 200;
+PANEL_WY :: 240.0;
+PANEL_W  :: 1100;
+PANE_H   :: 360;
 BTN_W    :: 200;
 BTN_H    :: 76;
 
+// Playground palette (0xRRGGBB) — the driver owns the theme; backends render these (no hardcoded colours).
+ED_BG  :: 0x0e121b;
+ED_FG  :: 0xcdd6f4;
+OUT_BG :: 0x11151f;
+OUT_FG :: 0xa6e3a1;
+
 Panel  :: arche { screen, size, title :: [16]char, len, view }
-Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view }
-Output :: arche { screen, size, output :: [4096]char, len, view }
+Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
+Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche { screen, size, label :: [8]char, len, clicked, wasdown, mouse, mouse_down, view }
 [1]Panel ?abort;
 [1]Editor ?abort;
@@ -350,8 +354,8 @@ done :: map (Closed) eff {
 
 seed_playground :: system eff {
   insert(Panel { screen: (0, 0), size: (0, 0), title: "PLAYGROUND", len: 10, view: (0, 0) })(_:, _ok:);
-  insert(Editor { screen: (0, 0), size: (0, 0), source: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", len: 0, cursor: 0, submit: 0, key: 0, view: (0, 0) })(_:, _ok:);
-  insert(Output { screen: (0, 0), size: (0, 0), output: "", len: 0, view: (0, 0) })(_:, _ok:);
+  insert(Editor { screen: (0, 0), size: (0, 0), source: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", len: 0, cursor: 0, submit: 0, key: 0, view: (0, 0), bg: ED_BG, fg: ED_FG })(_:, _ok:);
+  insert(Output { screen: (0, 0), size: (0, 0), output: "", len: 0, view: (0, 0), bg: OUT_BG, fg: OUT_FG })(_:, _ok:);
   insert(Button { screen: (0, 0), size: (0, 0), label: "RUN", len: 3, clicked: 0, wasdown: 0, mouse: (0, 0), mouse_down: 0, view: (0, 0) })(_:, _ok:);
 }
 
@@ -371,23 +375,23 @@ layout :: system eff {
       s   := camera.to_screen(vec.mk(PANEL_WX, PANEL_WY), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
       px  := i32(s.x);
       py  := i32(s.y);
-      cx  := ui.content_x(px);
-      cw  := ui.content_w(PANEL_W);
-      cy0 := ui.content_top(py);
-      cy1 := ui.next(cy0, EDIT_H);
-      cy2 := ui.next(cy1, OUT_H);
-      ph  := cy2 + BTN_H + ui.PAD - py;
+      cx   := ui.content_x(px);
+      cw   := ui.content_w(PANEL_W);
+      cy0  := ui.content_top(py);
+      half := (cw - ui.GAP) / 2;          // editor | output share a row, split the content width
+      cyb  := ui.next(cy0, PANE_H);        // button row, below the side-by-side panes
+      ph   := cyb + BTN_H + ui.PAD - py;
       map (query { title, screen, size })(screen, size) eff {
         screen.x = px; screen.y = py; size.w = PANEL_W; size.h = ph;
       };
       map (query { source, screen, size })(screen, size) eff {
-        screen.x = cx; screen.y = cy0; size.w = cw; size.h = EDIT_H;
+        screen.x = cx; screen.y = cy0; size.w = half; size.h = PANE_H;
       };
       map (query { output, screen, size })(screen, size) eff {
-        screen.x = cx; screen.y = cy1; size.w = cw; size.h = OUT_H;
+        screen.x = cx + half + ui.GAP; screen.y = cy0; size.w = half; size.h = PANE_H;
       };
       map (query { label, screen, size })(screen, size) eff {
-        screen.x = cx; screen.y = cy2; size.w = BTN_W; size.h = BTN_H;
+        screen.x = cx; screen.y = cyb; size.w = BTN_W; size.h = BTN_H;
       };
     };
   };
