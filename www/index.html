@@ -12,6 +12,12 @@
     html, body { margin: 0; height: 100%; background: #12131c; overflow: hidden; }
     #app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
     #screen { display: block; width: 100vw; height: 100vh; }
+
+    /* The world signs (text=dom) are <span>s in #text-layer that opt into pointer-events so they're
+       selectable — but that swallows wheel/touch over them and breaks scroll-to-pan. Make them inert so
+       the wheel/touch fall through to the gfx <canvas> underneath. (Web-only: native has no DOM text layer.)
+       The playground's layout lives in the arche program (`layout` in portfolio.arche), not here. */
+    #text-layer span { pointer-events: none !important; }
   </style>
 </head>
 <body>

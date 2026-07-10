@@ -13,7 +13,7 @@ PORT  ?= 8000
 # The in-browser compiler host loads these (built by arche-playground's `make toolchain`; copied from there).
 WWWDEPS := www/wasi.js www/analyzer/wasi-fs.js www/analyzer/arche-compile.wasm www/analyzer/arche-fs.json
 
-.PHONY: all serve dev clean
+.PHONY: all serve dev dev-osin dev-osgtk clean
 
 all: serve
 
@@ -27,9 +27,20 @@ GFX ?= x11
 # stack-overflows the instant the running app spawns a subprocess — so hot-reload + the in-app compiler can't
 # coexist yet. A built binary popens fine. Trade-off: no live scene reload here; re-run `make dev` after editing
 # src/. (The browser path — `make serve` — is unaffected; it compiles in-process via arche-compile.wasm.)
-dev:
+# TEXTEDIT selects the native editor backend: the default `window` draws bitmap glyphs into the shared
+# framebuffer; the two OS-embedded variants make the editor a real CHILD of the scene window (not a separate
+# top-level), positioned from the SAME arche `layout` the framebuffer path uses:
+#   make dev-osin   — X11 child window: OS focus/key input, drawn with a core X server font (plain Xlib).
+#   make dev-osgtk  — a real GtkTextView (native cursor/selection/IME/clipboard), embedded via XReparentWindow.
+# Both require gfx=x11 (they parent to its window via gfx_x11_window). dev-osgtk needs GTK3 dev headers.
+TEXTEDIT ?= window
+TEXTVIEW ?= window
+dev-osin:  TEXTEDIT = x11in
+dev-osgtk: TEXTEDIT = x11gtk
+dev-osgtk: TEXTVIEW = x11gtk
+dev dev-osin dev-osgtk:
 	@mkdir -p build
-	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,editor=window,screen=window,compiler=clib,button=window \
+	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=window,textedit=$(TEXTEDIT),textview=$(TEXTVIEW),button=window,compiler=clib \
 	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
 	ARCHE_BIN=$(ARCHE) ./build/portfolio-dev
 

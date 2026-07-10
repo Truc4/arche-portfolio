@@ -1,0 +1,22 @@
+#import { ui fmt }
+Panel  :: arche { screen, size, title :: [16]char, len, view }
+Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view }
+Output :: arche { screen, size, output :: [4096]char, len, view }
+Button :: arche { screen, size, label :: [8]char, len, clicked, wasdown, mouse, mouse_down, view }
+[1]Panel ?abort; [1]Editor ?abort; [1]Output ?abort; [1]Button ?abort;
+seed :: system eff {
+  insert(Panel { screen:(0,0), size:(0,0), title:"P", len:1, view:(0,0) })(_:,_ok:);
+  insert(Editor { screen:(0,0), size:(0,0), source:"hello", len:0, cursor:0, submit:0, key:0, view:(0,0) })(_:,_ok:);
+  insert(Output { screen:(0,0), size:(0,0), output:"", len:0, view:(0,0) })(_:,_ok:);
+  insert(Button { screen:(0,0), size:(0,0), label:"RUN", len:3, clicked:0, wasdown:0, mouse:(0,0), mouse_down:0, view:(0,0) })(_:,_ok:);
+}
+measure :: system eff {
+  map (query { source, len, cursor })(len, cursor) eff {
+    n := 0;
+    for (; n < source.length && source[n] != 0; n += 1) { }
+    len = n; cursor = n;
+  };
+}
+show :: system eff { map (query { source, len }) eff { fmt.printf("editor len=%d\n", len); }; }
+showP :: system eff { map (query { title, len }) eff { fmt.printf("panel len=%d\n", len); }; }
+#run seq({ seed, measure, show, showP })

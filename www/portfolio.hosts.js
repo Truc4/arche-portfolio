@@ -349,71 +349,49 @@
 })();
 
 
-// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/editor/dom/host.js ====
-// Browser host for the `editor` device's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
-// collects it. Fulfils the editor interface with a real <textarea>: the browser gives multi-line editing,
-// cursor, selection, undo, and IME for free. `open` focuses it; `text` reads its content back into the world;
-// `poll_run` reports a Ctrl-Enter (⌘-Enter) so the composed playground can compile+run on it. `step`/`render`
-// are no-ops on the arche side (the textarea manages itself) — they exist only to satisfy the shared interface.
+// ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/panel/dom/host.js ====
 (function () {
-  const enc = new TextEncoder();
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
-      this.runPending = false;
-      let ta = document.getElementById("arche-editor");
-      if (!ta) {
-        ta = document.createElement("textarea");
-        ta.id = "arche-editor";
-        ta.spellcheck = false;
-        ta.setAttribute("autocomplete", "off");
-        ta.style.cssText = "width:100%;height:58vh;box-sizing:border-box;background:#0b0e14;color:#cdd6f4;" +
-          "border:1px solid #1c2130;border-radius:6px;padding:12px;font:14px/1.5 ui-monospace,Menlo,monospace;outline:none;";
-        (rt.root || document.body).appendChild(ta);
-        ta.value = [
-          "#import { fmt }",
-          "",
-          "go :: system eff {",
-          "  fmt.printf(\"result = %d\\n\", 6 * 7);",
-          "}",
-          "",
-          "#run seq({ go })",
-        ].join("\n");
+      this.dec = new TextDecoder();
+      let f = document.getElementById("ui-panel");
+      if (!f) {
+        f = document.createElement("div");
+        f.id = "ui-panel";
+        // No flexbox/padding: children are absolutely positioned from the driver's projected rects (the same
+        // `layout` the native window backend reads), so native + browser lay out identically.
+        f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;background:#0b0e14;" +
+          "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
+        const t = document.createElement("div");
+        t.id = "ui-panel-title";
+        t.style.cssText = "position:absolute;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
+          "letter-spacing:0.08em;color:#cdd6f4;white-space:nowrap;";
+        f.appendChild(t);
+        (rt.root || document.body).appendChild(f);
       }
-      // Ctrl-Enter / ⌘-Enter = "run" — raise a flag the driver drains via editor_be_poll_run.
-      ta.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { this.runPending = true; e.preventDefault(); }
-      });
-      this.ta = ta;
+      this.frame = f;
     },
 
     seams(rt) {
       const self = this;
       return {
-        editor_be_open() { self.ta.focus(); },
-
-        // editor_be_text(bufPtr, cap): write the <textarea> content into the world buffer, NUL-terminated (the
-        // driver scans to the terminator — same convention as compiler_be_run; buf is an in-out pointer).
-        editor_be_text(bufPtr, cap) {
-          const mem = rt.memory();
-          const bytes = enc.encode(self.ta.value);
-          const k = Math.min(bytes.length, cap - 1);
-          new Uint8Array(mem.buffer, bufPtr, cap).set(bytes.subarray(0, k));
-          new Uint8Array(mem.buffer)[bufPtr + k] = 0;
-        },
-
-        // editor_be_poll_run(): 1 once after Ctrl-Enter, then clears (drain-and-clear like gfx_be_key).
-        editor_be_poll_run() { const f = self.runPending; self.runPending = false; return f ? 1 : 0; },
-
-        // editor_be_place(x,y): position the textarea at a projected screen coord (render-px), scaled to CSS-px
-        // by innerHeight/renderH (exactly the text-layer scale). First call switches it to a fixed-size panel.
-        editor_be_place(x, y) {
-          const ta = self.ta, s = window.innerHeight / (rt.renderH || 1080);
-          if (ta.style.position !== "absolute") {
-            ta.style.position = "absolute";
-            ta.style.width = "580px"; ta.style.height = "320px"; ta.style.zIndex = "5";
+        panel_be_render(x, y, w, h, ptr, n) {
+          const s = window.innerHeight / (rt.renderH || 1080), f = self.frame;
+          // Publish the panel origin + scale so each element host can position itself relative to the panel.
+          // panel.render runs before the element renders each frame, so these are fresh. (18 = ui.PAD.)
+          rt._uiScale = s; rt._uiPanelX = x; rt._uiPanelY = y;
+          f.style.left = (x * s) + "px";
+          f.style.top = (y * s) + "px";
+          f.style.width = (w * s) + "px";
+          f.style.height = (h * s) + "px";
+          f.style.fontSize = (20 * s) + "px";
+          const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
+          const tt = document.getElementById("ui-panel-title");
+          if (tt) {
+            if (tt.textContent !== t) tt.textContent = t;
+            tt.style.left = (18 * s) + "px";
+            tt.style.top = (18 * s) + "px";
           }
-          ta.style.left = (x * s) + "px";
-          ta.style.top = (y * s) + "px";
         },
       };
     },
@@ -421,50 +399,140 @@
 })();
 
 
-// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/screen/dom/host.js ====
-// Browser host for the `screen` device's dom backend. SHIPS WITH THE DEVICE (co-located with backend.arche);
-// `arche build --arch=wasm32` collects it into <out>.hosts.js — the browser twin of clib/screen_clib.c.
-// Registers the screen_be_* seams on the `archeHosts` global that runtime/arche-web.js assembles + drives.
-(globalThis.archeHosts ??= []).push({
-  bind(rt) {
-    this.el = document.getElementById("arche-screen");
-    if (!this.el) {
-      this.el = document.createElement("pre");
-      this.el.id = "arche-screen";
-      (rt.root || document.body).appendChild(this.el);
-    }
-    this.lines = [];
-    this.dec = new TextDecoder();
-  },
-  seams(rt) {
-    const self = this;
-    return {
-      screen_be_clear() { self.lines = []; self.el.textContent = ""; },
-      // screen_be_line(row, sPtr, n): the `(s: []char)` out-param is arche-side only → (row, ptr, n) here.
-      // Trim trailing empty rows so the <pre> auto-sizes to its content (a driver may over-allocate rows).
-      screen_be_line(row, ptr, n) {
-        self.lines[row] = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
-        let last = self.lines.length - 1;
-        while (last >= 0 && !self.lines[last]) last--;
-        self.el.textContent = self.lines.slice(0, last + 1).join("\n");
-      },
-      screen_be_present() {}, // native paces; the browser paces via rAF
+// ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/textedit/dom/host.js ====
+(function () {
+  (globalThis.archeHosts ??= []).push({
+    bind(rt) {
+      this.runPending = false;
+      this.dec = new TextDecoder();
+      this.enc = new TextEncoder();
+      let ta = document.getElementById("ui-textedit");
+      if (!ta) {
+        ta = document.createElement("textarea");
+        ta.id = "ui-textedit";
+        ta.spellcheck = false;
+        ta.setAttribute("autocomplete", "off");
+        ta.style.cssText = "position:absolute;box-sizing:border-box;resize:none;background:#0e121b;" +
+          "color:#cdd6f4;border:1px solid #232838;border-radius:0.4em;padding:0.7em;" +
+          "font:1em/1.5 ui-monospace,Menlo,monospace;outline:none;";
+        (rt.root || document.body).appendChild(ta);
+      }
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { this.runPending = true; e.preventDefault(); }
+      });
+      this.ta = ta;
+    },
+    seams(rt) {
+      const self = this;
+      return {
+        textedit_be_open(ptr, n) {
+          const f = document.getElementById("ui-panel");
+          if (f && self.ta.parentNode !== f) f.appendChild(self.ta);
+          if (!self.ta.value) {
+            const mem = new Uint8Array(rt.memory().buffer, ptr, n);
+            let end = 0;
+            while (end < n && mem[end] !== 0) end++;
+            self.ta.value = self.dec.decode(mem.subarray(0, end));
+          }
+          self.ta.focus();
+        },
+        textedit_be_text(bufPtr, cap) {
+          const bytes = self.enc.encode(self.ta.value);
+          const k = Math.min(bytes.length, cap - 1);
+          const mem = rt.memory();
+          new Uint8Array(mem.buffer, bufPtr, cap).set(bytes.subarray(0, k));
+          new Uint8Array(mem.buffer)[bufPtr + k] = 0;
+        },
+        textedit_be_poll_run() { const f = self.runPending; self.runPending = false; return f ? 1 : 0; },
+        // Position the <textarea> from the driver's projected rect (render px), relative to the panel origin.
+        textedit_be_place(x, y, w, h) {
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          const ta = self.ta;
+          ta.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          ta.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          ta.style.width = (w * s) + "px";
+          ta.style.height = (h * s) + "px";
+        },
+      };
+    },
+  });
+})();
 
-      // screen_be_place(x,y): position the <pre> at a projected screen coord (render-px), scaled by
-      // innerHeight/renderH. First call switches it to a fixed-size panel with its own styling.
-      screen_be_place(x, y) {
-        const el = self.el, s = window.innerHeight / (rt.renderH || 1080);
-        if (el.style.position !== "absolute") {
-          el.style.cssText = "position:absolute;width:580px;min-height:130px;margin:0;z-index:5;background:#11151f;" +
-            "border:1px solid #1c2130;border-radius:6px;padding:12px;color:#a6e3a1;" +
-            "font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre;overflow:auto;";
-        }
-        el.style.left = (x * s) + "px";
-        el.style.top = (y * s) + "px";
-      },
-    };
-  },
-});
+
+// ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/textview/dom/host.js ====
+(function () {
+  (globalThis.archeHosts ??= []).push({
+    bind(rt) {
+      this.dec = new TextDecoder();
+      let el = document.getElementById("ui-textview");
+      if (!el) {
+        el = document.createElement("pre");
+        el.id = "ui-textview";
+        el.style.cssText = "position:absolute;box-sizing:border-box;" +
+          "margin:0;overflow:auto;background:#11151f;color:#a6e3a1;border:1px solid #232838;border-radius:0.4em;" +
+          "padding:0.7em;white-space:pre;font:0.92em/1.5 ui-monospace,Menlo,monospace;";
+        (rt.root || document.body).appendChild(el);
+      }
+      this.el = el;
+    },
+    seams(rt) {
+      const self = this;
+      return {
+        textview_be_render(ptr, n, x, y, w, h) {
+          const f = document.getElementById("ui-panel");
+          if (f && self.el.parentNode !== f) f.appendChild(self.el);
+          const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
+          if (self.el.textContent !== t) self.el.textContent = t;
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          self.el.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          self.el.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          self.el.style.width = (w * s) + "px";
+          self.el.style.height = (h * s) + "px";
+        },
+      };
+    },
+  });
+})();
+
+
+// ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/button/dom/host.js ====
+(function () {
+  (globalThis.archeHosts ??= []).push({
+    bind(rt) {
+      this.clicked = false;
+      this.dec = new TextDecoder();
+      let b = document.getElementById("ui-button");
+      if (!b) {
+        b = document.createElement("button");
+        b.id = "ui-button";
+        b.type = "button";
+        b.style.cssText = "position:absolute;box-sizing:border-box;cursor:pointer;" +
+          "border:none;border-radius:0.4em;background:#e4694e;color:#160d0a;" +
+          "font:600 1em ui-sans-serif,system-ui,sans-serif;";
+        (rt.root || document.body).appendChild(b);
+      }
+      b.addEventListener("click", () => { this.clicked = true; });
+      this.b = b;
+    },
+    seams(rt) {
+      const self = this;
+      return {
+        button_be_label(ptr, n, x, y, w, h) {
+          const f = document.getElementById("ui-panel");
+          if (f && self.b.parentNode !== f) f.appendChild(self.b);
+          const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
+          if (self.b.textContent !== t) self.b.textContent = t;
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          self.b.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
+          self.b.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          self.b.style.width = (w * s) + "px";
+          self.b.style.height = (h * s) + "px";
+        },
+        button_be_poll() { const f = self.clicked; self.clicked = false; return f ? 1 : 0; },
+      };
+    },
+  });
+})();
 
 
 // ==== /home/curt/Code/arche-portfolio/../arche-playground/playground/devices/compiler/wasm/host.js ====
@@ -570,53 +638,6 @@
           new Uint8Array(mem.buffer, bufPtr, cap).set(bytes.subarray(0, k));
           new Uint8Array(mem.buffer)[bufPtr + k] = 0; // NUL-terminate
         },
-      };
-    },
-  });
-})();
-
-
-// ==== /home/curt/Code/arche-portfolio/../arche-playground/ui/devices/button/dom/host.js ====
-// Browser host for the `button` device's dom backend — SHIPS WITH THE DEVICE; `arche build --arch=wasm32`
-// collects it. Fulfils the button interface with a real <button>: `button_be_place` positions/sizes it (render-px
-// scaled to CSS by innerHeight/renderH, exactly like the text/editor/screen panels), `button_be_label` sets its
-// text, and a click handler raises a flag `button_be_poll` drains (edge-triggered, like gfx's key queue).
-(function () {
-  (globalThis.archeHosts ??= []).push({
-    bind(rt) {
-      this.clicked = false;
-      let b = document.getElementById("arche-button");
-      if (!b) {
-        b = document.createElement("button");
-        b.id = "arche-button";
-        b.type = "button";
-        b.style.cssText = "position:absolute;z-index:6;box-sizing:border-box;cursor:pointer;border:none;" +
-          "border-radius:6px;background:#e4694e;color:#160d0a;font:600 15px ui-sans-serif,system-ui,sans-serif;";
-        (rt.root || document.body).appendChild(b);
-      }
-      b.addEventListener("click", () => { this.clicked = true; });
-      this.b = b;
-    },
-
-    seams(rt) {
-      const self = this, dec = new TextDecoder();
-      return {
-        // Position + size at a projected screen rect (render-px), scaled to CSS-px like the other DOM panels.
-        button_be_place(x, y, w, h) {
-          const s = window.innerHeight / (rt.renderH || 1080), b = self.b;
-          b.style.left = (x * s) + "px";
-          b.style.top = (y * s) + "px";
-          b.style.width = (w * s) + "px";
-          b.style.height = (h * s) + "px";
-          b.style.fontSize = (Math.max(10, h * s * 0.42)) + "px";
-        },
-        // Set the label (rewrite only on change so a focus ring / press state isn't disturbed each frame).
-        button_be_label(ptr, n) {
-          const t = dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
-          if (self.b.textContent !== t) self.b.textContent = t;
-        },
-        // 1 once per click, then clears (drain-and-clear like gfx_be_key / editor_be_poll_run).
-        button_be_poll() { const f = self.clicked; self.clicked = false; return f ? 1 : 0; },
       };
     },
   });
