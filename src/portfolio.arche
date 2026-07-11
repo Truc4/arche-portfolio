@@ -15,7 +15,8 @@ ARENA_L     :: 40.0;    // left wall (world-x)
 ARENA_R     :: 640.0;   // right wall (world-x)
 ARENA_TOP   :: 200.0;   // ceiling (world-y)
 ARENA_FLOOR :: 1140.0;  // floor line == FLOOR prop top == player foot line
-GRAV        :: 0.4;     // gravity, px/frame^2 (added to lvel.y each frame; +y is down)
+GRAV        :: 0.4;     // gravity, px/frame^2 (+y is down)
+GDT         :: 0.025;   // gravity per TGS SUBSTEP = GRAV / rigid.SUBSTEPS(16); applied 16×/frame
 PHALF       :: 51.0;    // player half-extent (a static rigid obstacle, PW=102)
 BREST       :: 0.12;    // box restitution (slight bounce)
 BFRIC       :: 0.45;    // box friction
@@ -240,10 +241,10 @@ sync_player_rbody :: map (query { ppx, pos })(pos) {
   pos.y = PLAYER_Y;
 }
 
-// Gravity (world +y is down): add to lvel on the DYNAMIC bodies only (mi.x > 0). Static solids/player
-// (mi.x = 0) get none, so they never fall. Matches Box + Ball together.
+// Per-SUBSTEP gravity (world +y is down): add GDT to lvel on the DYNAMIC bodies only (mi.x > 0). Static
+// solids/player (mi.x = 0) get none. Run once per substep (16×/frame) so the total is GRAV per frame.
 rigid_gravity :: map (query { lvel, mi })(lvel) {
-  lvel.y = lvel.y + GRAV * select(mi.x > 0.0, 1.0, 0.0);
+  lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
 }
 
 // World-bounds confine: a dynamic body's centre is clamped into the arena and velocity into a wall is
@@ -674,6 +675,15 @@ run_it :: system eff {
   };
 }
 
+// One TGS substep of the rigid solve, listed 16×/frame in the schedule below. Per-substep gravity + a
+// contact-count pass (for mass-splitting) + 2 soft-constraint velocity iterations + a DT position integrate.
+phys_sub :: func() -> Schedule {
+  return seq({ rigid_gravity, rigid.contacts,
+               rigid.solve_lin, rigid.solve_ang, rigid.apply,
+               rigid.solve_lin, rigid.solve_ang, rigid.apply,
+               rigid.integrate });
+}
+
 #run {
   seq(
     {
@@ -686,24 +696,12 @@ run_it :: system eff {
       textedit.open,
       forever(seq({
         walk, pan, clamp_player,
-        sync_player_rbody, rigid_gravity, rigid.integrate,
-        // 12 velocity iterations: a Jacobi/reduce solver needs a high count + strong under-relaxation
-        // (RELAX=0.3 in the device) to CONVERGE — few iterations limit-cycle (visible jitter). See the
-        // physics integration harness (arche tests/integration/physics.py) for the convergence evidence.
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
-        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
+        sync_player_rbody,
+        // Substepped TGS-Soft rigid solve: 16 substeps/frame (phys_sub = gravity + contact-count + 2 soft
+        // velocity iterations + integrate). Rigidity comes from the small step + the device's soft-constraint
+        // velocity bias (no position pass), so stacks settle solid instead of springing. See rigid.arche.
+        phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(),
+        phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(),
         rigid.rest, confine,
         ui_input,
         project, project_hill, project_round, project_box, project_ball, project_player, project_text, layout,
