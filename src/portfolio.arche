@@ -1,4 +1,4 @@
-#import { gfx camera vec os text ui panel textedit textview button compiler physics }
+#import { gfx camera vec os text ui panel textedit textview button compiler rigid }
 
 H    :: 1080;
 MAXW :: 4096;
@@ -15,8 +15,11 @@ ARENA_L     :: 40.0;    // left wall (world-x)
 ARENA_R     :: 640.0;   // right wall (world-x)
 ARENA_TOP   :: 200.0;   // ceiling (world-y)
 ARENA_FLOOR :: 1140.0;  // floor line == FLOOR prop top == player foot line
-GRAV        :: 1.1;     // gravity, px/frame^2
-PHALF       :: 46.0;    // player half-extent (kinematic pusher)
+GRAV        :: 0.4;     // gravity, px/frame^2 (added to lvel.y each frame; +y is down)
+PHALF       :: 51.0;    // player half-extent (a static rigid obstacle, PW=102)
+BREST       :: 0.12;    // box restitution (slight bounce)
+BFRIC       :: 0.45;    // box friction
+BINVI       :: 0.0016;  // box inverse inertia (tuned so boxes visibly tumble)
 
 CANVAS :: 0x12131c;
 FLOOR  :: 0x242742;
@@ -78,13 +81,18 @@ qsx  :: int;
 qsy  :: int;
 qr   :: int;
 qcol :: int;
+sflag :: int;
 
 Prop :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
-Box  :: arche { pos, vel, half, push, bsx, bsy, bhw, bhh, bcol }
-Ball :: arche { pos, vel, half, push, qsx, qsy, qr, qcol }
-Player :: arche { ppx, prx, pry, pos, half }
+// Rigid bodies (OBBs with rotation) — the `rigid` device solves them. Box renders as a rotated rect,
+// Ball as a circle (its rotation is invisible), Solid is the static floor/walls, Player is a static
+// obstacle synced to the walked position. All carry the rigid component set so they all collide.
+Box    :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, bsx, bsy, bhw, bhh, bcol }
+Ball   :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, qsx, qsy, qr, qcol }
+Solid  :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sflag }
+Player :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor }
 Window :: arche { handle, bg }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
@@ -94,7 +102,9 @@ Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 [8]Round(6);
 [8]Box(6);
 [6]Ball(4);
-[4]Body;              // physics datasheet storage floor (unused; Box/Ball/Player carry the real bodies)
+[4]Solid(4);          // static floor + left/right walls + ceiling (mi = 0); `sflag` makes its shape
+                      // distinct from the RBody storage floor below
+[4]RBody;             // rigid datasheet storage floor (unused; the archetypes carry the real bodies)
 [2]Player(1);         // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
                       // ../arche/tests/extras/query_singleton_pool_broadcast.arche
 [1]Window ?abort;
@@ -153,10 +163,16 @@ seed :: system {
   Round.cplx = { 0.25,    0.25,   0.25,   1.0,     1.0,    1.0    };
 
   Player.ppx    = { 2100.0 };
-  Player.pos.x  = { 2100.0 };
-  Player.pos.y  = { PLAYER_Y };
-  Player.half.x = { PHALF };
-  Player.half.y = { PHALF };
+  Player.pos.x  = { 2100.0 };  Player.pos.y  = { PLAYER_Y };
+  Player.lvel.x = { 0.0 };     Player.lvel.y = { 0.0 };
+  Player.spin.x = { 0.0 };     Player.spin.y = { 0.0 };
+  Player.rot.x  = { 1.0 };     Player.rot.y  = { 0.0 };
+  Player.ext.x  = { PHALF };   Player.ext.y  = { PHALF };
+  Player.mi.x   = { 0.0 };     Player.mi.y   = { 0.0 };    // static (immovable) obstacle
+  Player.mat.x  = { 0.1 };     Player.mat.y  = { 0.5 };
+  Player.dimp.x = { 0.0 };     Player.dimp.y = { 0.0 };
+  Player.dang.x = { 0.0 };     Player.dang.y = { 0.0 };
+  Player.cor.x  = { 0.0 };     Player.cor.y  = { 0.0 };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
@@ -166,71 +182,68 @@ seed :: system {
 // The physics bin: 6 boxes + 4 balls dropped in above the arena floor. All share the physics `Body`
 // components (pos/vel/half/push) so `physics.collide` resolves every pair — boxes, balls, and the player.
 seed_arena :: system {
-  Box.pos.x  = { 120.0, 210.0, 300.0, 410.0, 520.0, 260.0 };
-  Box.pos.y  = { 300.0, 200.0, 380.0, 240.0, 320.0, 120.0 };
-  Box.vel.x  = { 0.0,   0.0,   0.0,   0.0,   0.0,   0.0   };
-  Box.vel.y  = { 0.0,   0.0,   0.0,   0.0,   0.0,   0.0   };
-  Box.half.x = { 44.0,  36.0,  52.0,  40.0,  48.0,  34.0  };
-  Box.half.y = { 44.0,  36.0,  52.0,  40.0,  48.0,  34.0  };
-  Box.bcol   = { BOXA,  BOXB,  BOXC,  BOXA,  BOXB,  BOXC  };
+  // 6 tumbling boxes — varied start angles (rot = unit (cos,sin)) and a little initial spin so they read
+  // as rigid bodies the instant they drop. Some are non-square. mi = (invMass, invInertia).
+  Box.pos.x  = { 120.0,  250.0,  380.0,  500.0,  200.0,  440.0  };
+  Box.pos.y  = { 320.0,  260.0,  360.0,  280.0,  520.0,  560.0  };
+  Box.lvel.x = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
+  Box.lvel.y = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
+  Box.spin.x = { 0.02,  -0.03,   0.04,  -0.02,   0.03,  -0.04   };
+  Box.spin.y = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
+  Box.rot.x  = { 1.0,    0.924,  0.707,  0.383,  0.0,    0.831  };
+  Box.rot.y  = { 0.0,    0.383,  0.707,  0.924,  1.0,    0.556  };
+  Box.ext.x  = { 44.0,   36.0,   52.0,   40.0,   48.0,   34.0   };
+  Box.ext.y  = { 44.0,   36.0,   40.0,   40.0,   30.0,   34.0   };
+  Box.mi.x   = { 1.0,    1.0,    1.0,    1.0,    1.0,    1.0    };
+  Box.mi.y   = { BINVI,  BINVI,  BINVI,  BINVI,  BINVI,  BINVI  };
+  Box.mat.x  = { BREST,  BREST,  BREST,  BREST,  BREST,  BREST  };
+  Box.mat.y  = { BFRIC,  BFRIC,  BFRIC,  BFRIC,  BFRIC,  BFRIC  };
+  Box.dimp.x = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.dimp.y = { 0.0,0.0,0.0,0.0,0.0,0.0 };
+  Box.dang.x = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.dang.y = { 0.0,0.0,0.0,0.0,0.0,0.0 };
+  Box.cor.x  = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.cor.y  = { 0.0,0.0,0.0,0.0,0.0,0.0 };
+  Box.bcol   = { BOXA,  BOXB,   BOXC,   BOXA,   BOXB,   BOXC   };
 
-  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };
-  Ball.pos.y  = { 260.0, 300.0, 220.0, 340.0 };
-  Ball.vel.x  = { 0.0,   0.0,   0.0,   0.0   };
-  Ball.vel.y  = { 0.0,   0.0,   0.0,   0.0   };
-  Ball.half.x = { 38.0,  30.0,  44.0,  26.0  };
-  Ball.half.y = { 38.0,  30.0,  44.0,  26.0  };
+  // 4 balls — collide as (square) rigid bodies, rendered as circles (ext.x == ext.y == radius).
+  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };  Ball.pos.y  = { 240.0, 300.0, 220.0, 340.0 };
+  Ball.lvel.x = { 0.0,   0.0,   0.0,   0.0   };  Ball.lvel.y = { 0.0,   0.0,   0.0,   0.0   };
+  Ball.spin.x = { 0.0,   0.0,   0.0,   0.0   };  Ball.spin.y = { 0.0,   0.0,   0.0,   0.0   };
+  Ball.rot.x  = { 1.0,   1.0,   1.0,   1.0   };  Ball.rot.y  = { 0.0,   0.0,   0.0,   0.0   };
+  Ball.ext.x  = { 38.0,  30.0,  44.0,  26.0  };  Ball.ext.y  = { 38.0,  30.0,  44.0,  26.0  };
+  Ball.mi.x   = { 1.0,   1.0,   1.0,   1.0   };  Ball.mi.y   = { BINVI, BINVI, BINVI, BINVI };
+  Ball.mat.x  = { BREST, BREST, BREST, BREST };  Ball.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC };
+  Ball.dimp.x = { 0.0,0.0,0.0,0.0 };  Ball.dimp.y = { 0.0,0.0,0.0,0.0 };
+  Ball.dang.x = { 0.0,0.0,0.0,0.0 };  Ball.dang.y = { 0.0,0.0,0.0,0.0 };
+  Ball.cor.x  = { 0.0,0.0,0.0,0.0 };  Ball.cor.y  = { 0.0,0.0,0.0,0.0 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB };
+
+  // Static bin: floor, left wall, right wall, ceiling (mi = 0). Faces align with the visual BIN props.
+  Solid.pos.x  = { 340.0,  30.0,   650.0,  340.0 };  Solid.pos.y  = { 1190.0, 670.0,  670.0,  190.0 };
+  Solid.lvel.x = { 0.0,    0.0,    0.0,    0.0   };  Solid.lvel.y = { 0.0,    0.0,    0.0,    0.0   };
+  Solid.spin.x = { 0.0,    0.0,    0.0,    0.0   };  Solid.spin.y = { 0.0,    0.0,    0.0,    0.0   };
+  Solid.rot.x  = { 1.0,    1.0,    1.0,    1.0   };  Solid.rot.y  = { 0.0,    0.0,    0.0,    0.0   };
+  Solid.ext.x  = { 320.0,  10.0,   10.0,   320.0 };  Solid.ext.y  = { 50.0,   480.0,  480.0,  10.0  };
+  Solid.mi.x   = { 0.0,    0.0,    0.0,    0.0   };  Solid.mi.y   = { 0.0,    0.0,    0.0,    0.0   };
+  Solid.mat.x  = { 0.1,    0.1,    0.1,    0.1   };  Solid.mat.y  = { 0.5,    0.5,    0.5,    0.5   };
+  Solid.dimp.x = { 0.0,0.0,0.0,0.0 };  Solid.dimp.y = { 0.0,0.0,0.0,0.0 };
+  Solid.dang.x = { 0.0,0.0,0.0,0.0 };  Solid.dang.y = { 0.0,0.0,0.0,0.0 };
+  Solid.cor.x  = { 0.0,0.0,0.0,0.0 };  Solid.cor.y  = { 0.0,0.0,0.0,0.0 };
+  Solid.sflag  = { 0,0,0,0 };
 }
 
 // --- Physics sandbox systems -------------------------------------------------
 
-// Player is a KINEMATIC obstacle: it carries {pos, half} (so physics.collide sees it in `as All` and
-// bodies get pushed out of it) but no vel/push, so it is never moved. Sync its body to the walked ppx
-// each frame, before the collision pass. Pure map (query matches only Player — the sole ppx holder).
-sync_player_body :: map (query { ppx, pos })(pos) {
+// The player is a STATIC rigid obstacle (mi = 0) that walks: teleport its body to the walked ppx each
+// frame, before the solver. As an infinite-mass body it shoves the dynamic bodies and is never moved.
+// Pure map — [2]Player extent (not 1) keeps this write off the other pools (the singleton-broadcast bug).
+sync_player_rbody :: map (query { ppx, pos })(pos) {
   pos.x = ppx;
   pos.y = PLAYER_Y;
 }
 
-// Gravity — pure map over every body with a vel (Box + Ball; the player has none).
-gravity :: map (query { vel })(vel) {
-  vel.y = vel.y + GRAV;
-}
-
-// The player is an IMMOVABLE pusher. physics.collide already gave every body 0.5*mtv against the player
-// (the equal-mass split); this adds the OTHER 0.5 so bodies fully separate from the player instead of
-// sinking through under gravity — and zeroes their velocity into the player. Mirrors collide's structure
-// (outer join binds the single player via its unique `ppx`, inner reduce over that one row). Runs after
-// physics.shift so it corrects the post-resolve positions.
-resolve_player :: system (query { ppx, pos, half } as P) {
-  map (query { pos, vel, half, push } as me)(pos, vel) {
-    m := reduce(+, physics.mtv(me.pos, me.half, P.pos, P.half)) * 0.5;
-    pos = pos + m;
-    vel.x = select(vec.absf(m.x) > 0.001, 0.0, vel.x);
-    vel.y = select(vec.absf(m.y) > 0.001, 0.0, vel.y);
-  };
-}
-
-// Keep bodies inside the arena rectangle and bleed off velocity on contact (clamp_in only moves pos, so
-// without this bodies jitter / tunnel). Pure map over {pos, vel, half} → matches Box + Ball together.
-clamp_bodies :: map (query { pos, vel, half })(pos, vel) {
-  lox := ARENA_L + half.x;
-  hix := ARENA_R - half.x;
-  loy := ARENA_TOP + half.y;
-  hiy := ARENA_FLOOR - half.y;
-  // stop velocity at each contact (read pre-clamp pos)
-  vel.y = select(pos.y >= hiy && vel.y > 0.0, 0.0, vel.y);
-  vel.y = select(pos.y <= loy && vel.y < 0.0, 0.0, vel.y);
-  vel.x = select(pos.x <= lox && vel.x < 0.0, 0.0, vel.x);
-  vel.x = select(pos.x >= hix && vel.x > 0.0, 0.0, vel.x);
-  // floor friction so stacks settle horizontally
-  vel.x = select(pos.y >= hiy, vel.x * 0.82, vel.x);
-  // clamp position into the rect
-  pos.x = select(pos.x < lox, lox, pos.x);
-  pos.x = select(pos.x > hix, hix, pos.x);
-  pos.y = select(pos.y < loy, loy, pos.y);
-  pos.y = select(pos.y > hiy, hiy, pos.y);
+// Gravity (world +y is down): add to lvel on the DYNAMIC bodies only (mi.x > 0). Static solids/player
+// (mi.x = 0) get none, so they never fall. Matches Box + Ball together.
+rigid_gravity :: map (query { lvel, mi })(lvel) {
+  lvel.y = lvel.y + GRAV * select(mi.x > 0.0, 1.0, 0.0);
 }
 
 // Project the boxes (foreground plane, plx = 1.0 → no parallax) to screen columns + half-extents.
@@ -238,12 +251,12 @@ project_box :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      map (query { pos, half, bsx, bsy, bhw, bhh })(bsx, bsy, bhw, bhh) eff {
+      map (query { pos, ext, bsx, bsy, bhw, bhh })(bsx, bsy, bhw, bhh) eff {
         s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         bsx = i32(s.x);
         bsy = i32(s.y);
-        bhw = i32(half.x * zoom);
-        bhh = i32(half.y * zoom);
+        bhw = i32(ext.x * zoom);
+        bhh = i32(ext.y * zoom);
       };
     };
   };
@@ -253,42 +266,43 @@ project_ball :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      map (query { pos, half, qsx, qsy, qr })(qsx, qsy, qr) eff {
+      map (query { pos, ext, qsx, qsy, qr })(qsx, qsy, qr) eff {
         s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         qsx = i32(s.x);
         qsy = i32(s.y);
-        qr  = i32(half.x * zoom);
+        qr  = i32(ext.x * zoom);
       };
     };
   };
 }
 
-// Filled rect per box (mirrors draw_player), centred on bsx,bsy ± bhw,bhh.
-draw_box :: system (query { framebuffer })(framebuffer) eff {
+// Filled ROTATED rect per box: the camera has no rotation, so the body's orientation `rot` is also the
+// screen orientation. Scan the (upright) bounding square and keep pixels whose offset, rotated back into
+// the box's local frame, lies within the half-extents — a per-pixel OBB test (mirrors draw_ball's disc
+// test but with an orientation). This is what makes the tumbling visible.
+draw_rbox :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
-    map (query { bsx, bsy, bhw, bhh, bcol }) eff {
-      y0 := bsy - bhh;
-      y1 := bsy + bhh;
-      if (y0 < 0) {
-        y0 = 0;
-      }
-      if (y1 > vh) {
-        y1 = vh;
-      }
-      x0 := bsx - bhw;
-      x1 := bsx + bhw;
-      if (x0 < 0) {
-        x0 = 0;
-      }
-      if (x1 > vw) {
-        x1 = vw;
-      }
+    map (query { bsx, bsy, bhw, bhh, rot, bcol }) eff {
+      diag := bhw + bhh;                    // conservative bound for any rotation
+      y0 := bsy - diag;  y1 := bsy + diag;
+      x0 := bsx - diag;  x1 := bsx + diag;
+      if (y0 < 0)  { y0 = 0; }
+      if (y1 > vh) { y1 = vh; }
+      if (x0 < 0)  { x0 = 0; }
+      if (x1 > vw) { x1 = vw; }
+      hw := float(bhw);  hh := float(bhh);
       yy := y0;
       for (; yy < y1;) {
         xx := x0;
         for (; xx < x1;) {
-          framebuffer[yy * vw + xx] = bcol;
+          dx := float(xx - bsx);
+          dy := float(yy - bsy);
+          lx := dx * rot.x + dy * rot.y;        // inverse-rotate the offset into the box's local frame
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) <= hw && vec.absf(ly) <= hh) {
+            framebuffer[yy * vw + xx] = bcol;
+          }
           xx = xx + 1;
         }
         yy = yy + 1;
@@ -654,10 +668,16 @@ run_it :: system eff {
       textedit.open,
       forever(seq({
         walk, pan, clamp_player,
-        sync_player_body, gravity, physics.integrate, physics.collide, physics.shift, resolve_player, clamp_bodies,
+        sync_player_rbody, rigid_gravity, rigid.integrate,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
+        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
         ui_input,
         project, project_hill, project_round, project_box, project_ball, project_player, project_text, layout,
-        gfx.clear, draw_hills, draw_round, gfx.rect, draw_box, draw_ball, draw_player, text.render,
+        gfx.clear, draw_hills, draw_round, gfx.rect, draw_rbox, draw_ball, draw_player, text.render,
         textedit.step, textedit.text, textedit.poll_run, button.poll, run_button, run_it,
         panel.render, textedit.render, textview.render, button.render,
         gfx.present, gfx.poll, done,
