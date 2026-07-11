@@ -1,4 +1,4 @@
-#import { gfx camera vec os text ui panel textedit textview button compiler }
+#import { gfx camera vec os text ui panel textedit textview button compiler physics }
 
 H    :: 1080;
 MAXW :: 4096;
@@ -9,6 +9,14 @@ EYE0     :: 2100.0;
 PAR_HILL :: 0.5;
 PLAYER_Y :: 1089.0;
 PW :: 102;
+
+// Physics sandbox — a bin of bodies to the LEFT of the playground (world-x < PANEL_WX = 700).
+ARENA_L     :: 40.0;    // left wall (world-x)
+ARENA_R     :: 640.0;   // right wall (world-x)
+ARENA_TOP   :: 200.0;   // ceiling (world-y)
+ARENA_FLOOR :: 1140.0;  // floor line == FLOOR prop top == player foot line
+GRAV        :: 1.1;     // gravity, px/frame^2
+PHALF       :: 46.0;    // player half-extent (kinematic pusher)
 
 CANVAS :: 0x12131c;
 FLOOR  :: 0x242742;
@@ -22,6 +30,12 @@ S6     :: 0x656caa;
 CLOUD  :: 0x9298cc;
 BUSH   :: 0x3f4570;
 PLAYER :: 0xe4694e;
+BOXA   :: 0x4b5183;
+BOXB   :: 0x585f96;
+BOXC   :: 0x656caa;
+BALLA  :: 0x9298cc;
+BALLB  :: 0xd98a5e;
+BIN    :: 0x7a82c0;
 
 rw     :: int;
 rh     :: int;
@@ -55,19 +69,34 @@ tlen :: int;
 twx  :: float;
 twy  :: float;
 tplx :: float;
+bsx  :: int;
+bsy  :: int;
+bhw  :: int;
+bhh  :: int;
+bcol :: int;
+qsx  :: int;
+qsy  :: int;
+qr   :: int;
+qcol :: int;
 
 Prop :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
-Player :: arche { ppx, prx, pry }
+Box  :: arche { pos, vel, half, push, bsx, bsy, bhw, bhh, bcol }
+Ball :: arche { pos, vel, half, push, qsx, qsy, qr, qcol }
+Player :: arche { ppx, prx, pry, pos, half }
 Window :: arche { handle, bg }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
-[8]Prop(7);
+[12]Prop(11);         // 7 scenery rects + 4 arena-bin walls (marked physics bounds)
 [6]Hill(3);
 [8]Round(6);
-[1]Player(1);
+[8]Box(6);
+[6]Ball(4);
+[4]Body;              // physics datasheet storage floor (unused; Box/Ball/Player carry the real bodies)
+[2]Player(1);         // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
+                      // ../arche/tests/extras/query_singleton_pool_broadcast.arche
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
@@ -102,12 +131,14 @@ boot :: system eff {
 }
 
 seed :: system {
-  Prop.pos.x  = { 2100.0,  1560.0, 600.0, 3750.0, 2760.0, 1080.0, 3240.0 };
-  Prop.pos.y  = { 1200.0,  915.0,  885.0, 900.0,  945.0,  975.0,  990.0  };
-  Prop.rw     = { 12000,   210,    270,   270,    330,    390,    510    };
-  Prop.rh     = { 120,     450,    510,   480,    390,    330,    300    };
-  Prop.rcolor = { FLOOR,   S1,     S2,    S3,     S4,     S5,     S6     };
-  Prop.plx    = { 1.0,     0.625,  0.6875, 0.75,  0.8125, 0.875,  0.9375 };
+  // 7 scenery rects, then 4 arena-bin walls (left, right, floor, ceiling) at parallax 1.0 marking the
+  // clamp rect ARENA_L=40 / ARENA_R=640 / ARENA_TOP=200 / ARENA_FLOOR=1140 — bodies stop exactly here.
+  Prop.pos.x  = { 2100.0,  1560.0, 600.0, 3750.0, 2760.0, 1080.0, 3240.0,   33.0,  647.0, 340.0, 340.0 };
+  Prop.pos.y  = { 1200.0,  915.0,  885.0, 900.0,  945.0,  975.0,  990.0,    670.0, 670.0, 1147.0, 193.0 };
+  Prop.rw     = { 12000,   210,    270,   270,    330,    390,    510,      14,    14,    642,   642   };
+  Prop.rh     = { 120,     450,    510,   480,    390,    330,    300,       946,   946,   14,    14    };
+  Prop.rcolor = { FLOOR,   S1,     S2,    S3,     S4,     S5,     S6,        BIN,   BIN,   BIN,   BIN   };
+  Prop.plx    = { 1.0,     0.625,  0.6875, 0.75,  0.8125, 0.875,  0.9375,   1.0,   1.0,   1.0,   1.0   };
 
   Hill.hpx = { 900.0, 2400.0, 3900.0 };
   Hill.hpy = { 1140.0, 1140.0, 1140.0 };
@@ -121,11 +152,186 @@ seed :: system {
   Round.ccol = { CLOUD,   CLOUD,  CLOUD,  BUSH,    BUSH,   BUSH   };
   Round.cplx = { 0.25,    0.25,   0.25,   1.0,     1.0,    1.0    };
 
-  Player.ppx = { 2100.0 };
+  Player.ppx    = { 2100.0 };
+  Player.pos.x  = { 2100.0 };
+  Player.pos.y  = { PLAYER_Y };
+  Player.half.x = { PHALF };
+  Player.half.y = { PHALF };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
   Camera.zoom  = { 1.0 };
+}
+
+// The physics bin: 6 boxes + 4 balls dropped in above the arena floor. All share the physics `Body`
+// components (pos/vel/half/push) so `physics.collide` resolves every pair — boxes, balls, and the player.
+seed_arena :: system {
+  Box.pos.x  = { 120.0, 210.0, 300.0, 410.0, 520.0, 260.0 };
+  Box.pos.y  = { 300.0, 200.0, 380.0, 240.0, 320.0, 120.0 };
+  Box.vel.x  = { 0.0,   0.0,   0.0,   0.0,   0.0,   0.0   };
+  Box.vel.y  = { 0.0,   0.0,   0.0,   0.0,   0.0,   0.0   };
+  Box.half.x = { 44.0,  36.0,  52.0,  40.0,  48.0,  34.0  };
+  Box.half.y = { 44.0,  36.0,  52.0,  40.0,  48.0,  34.0  };
+  Box.bcol   = { BOXA,  BOXB,  BOXC,  BOXA,  BOXB,  BOXC  };
+
+  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };
+  Ball.pos.y  = { 260.0, 300.0, 220.0, 340.0 };
+  Ball.vel.x  = { 0.0,   0.0,   0.0,   0.0   };
+  Ball.vel.y  = { 0.0,   0.0,   0.0,   0.0   };
+  Ball.half.x = { 38.0,  30.0,  44.0,  26.0  };
+  Ball.half.y = { 38.0,  30.0,  44.0,  26.0  };
+  Ball.qcol   = { BALLA, BALLB, BALLA, BALLB };
+}
+
+// --- Physics sandbox systems -------------------------------------------------
+
+// Player is a KINEMATIC obstacle: it carries {pos, half} (so physics.collide sees it in `as All` and
+// bodies get pushed out of it) but no vel/push, so it is never moved. Sync its body to the walked ppx
+// each frame, before the collision pass. Pure map (query matches only Player — the sole ppx holder).
+sync_player_body :: map (query { ppx, pos })(pos) {
+  pos.x = ppx;
+  pos.y = PLAYER_Y;
+}
+
+// Gravity — pure map over every body with a vel (Box + Ball; the player has none).
+gravity :: map (query { vel })(vel) {
+  vel.y = vel.y + GRAV;
+}
+
+// The player is an IMMOVABLE pusher. physics.collide already gave every body 0.5*mtv against the player
+// (the equal-mass split); this adds the OTHER 0.5 so bodies fully separate from the player instead of
+// sinking through under gravity — and zeroes their velocity into the player. Mirrors collide's structure
+// (outer join binds the single player via its unique `ppx`, inner reduce over that one row). Runs after
+// physics.shift so it corrects the post-resolve positions.
+resolve_player :: system (query { ppx, pos, half } as P) {
+  map (query { pos, vel, half, push } as me)(pos, vel) {
+    m := reduce(+, physics.mtv(me.pos, me.half, P.pos, P.half)) * 0.5;
+    pos = pos + m;
+    vel.x = select(vec.absf(m.x) > 0.001, 0.0, vel.x);
+    vel.y = select(vec.absf(m.y) > 0.001, 0.0, vel.y);
+  };
+}
+
+// Keep bodies inside the arena rectangle and bleed off velocity on contact (clamp_in only moves pos, so
+// without this bodies jitter / tunnel). Pure map over {pos, vel, half} → matches Box + Ball together.
+clamp_bodies :: map (query { pos, vel, half })(pos, vel) {
+  lox := ARENA_L + half.x;
+  hix := ARENA_R - half.x;
+  loy := ARENA_TOP + half.y;
+  hiy := ARENA_FLOOR - half.y;
+  // stop velocity at each contact (read pre-clamp pos)
+  vel.y = select(pos.y >= hiy && vel.y > 0.0, 0.0, vel.y);
+  vel.y = select(pos.y <= loy && vel.y < 0.0, 0.0, vel.y);
+  vel.x = select(pos.x <= lox && vel.x < 0.0, 0.0, vel.x);
+  vel.x = select(pos.x >= hix && vel.x > 0.0, 0.0, vel.x);
+  // floor friction so stacks settle horizontally
+  vel.x = select(pos.y >= hiy, vel.x * 0.82, vel.x);
+  // clamp position into the rect
+  pos.x = select(pos.x < lox, lox, pos.x);
+  pos.x = select(pos.x > hix, hix, pos.x);
+  pos.y = select(pos.y < loy, loy, pos.y);
+  pos.y = select(pos.y > hiy, hiy, pos.y);
+}
+
+// Project the boxes (foreground plane, plx = 1.0 → no parallax) to screen columns + half-extents.
+project_box :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, half, bsx, bsy, bhw, bhh })(bsx, bsy, bhw, bhh) eff {
+        s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        bsx = i32(s.x);
+        bsy = i32(s.y);
+        bhw = i32(half.x * zoom);
+        bhh = i32(half.y * zoom);
+      };
+    };
+  };
+}
+
+project_ball :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, half, qsx, qsy, qr })(qsx, qsy, qr) eff {
+        s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        qsx = i32(s.x);
+        qsy = i32(s.y);
+        qr  = i32(half.x * zoom);
+      };
+    };
+  };
+}
+
+// Filled rect per box (mirrors draw_player), centred on bsx,bsy ± bhw,bhh.
+draw_box :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { bsx, bsy, bhw, bhh, bcol }) eff {
+      y0 := bsy - bhh;
+      y1 := bsy + bhh;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      x0 := bsx - bhw;
+      x1 := bsx + bhw;
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = bcol;
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+// Filled disc per ball (mirrors draw_round), centre qsx,qsy radius qr.
+draw_ball :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { qsx, qsy, qr, qcol }) eff {
+      r2 := qr * qr;
+      yy := qsy - qr;
+      ylim := qsy + qr + 1;
+      if (yy < 0) {
+        yy = 0;
+      }
+      if (ylim > vh) {
+        ylim = vh;
+      }
+      for (; yy < ylim;) {
+        xx := qsx - qr;
+        xlim := qsx + qr + 1;
+        if (xx < 0) {
+          xx = 0;
+        }
+        if (xlim > vw) {
+          xlim = vw;
+        }
+        for (; xx < xlim;) {
+          dx := xx - qsx;
+          dy := yy - qsy;
+          if (dx * dx + dy * dy <= r2) {
+            framebuffer[yy * vw + xx] = qcol;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
 }
 
 walk :: system eff {
@@ -441,15 +647,17 @@ run_it :: system eff {
     {
       boot,
       seed,
+      seed_arena,
       seed_text,
       seed_playground,
       measure,
       textedit.open,
       forever(seq({
         walk, pan, clamp_player,
+        sync_player_body, gravity, physics.integrate, physics.collide, physics.shift, resolve_player, clamp_bodies,
         ui_input,
-        project, project_hill, project_round, project_player, project_text, layout,
-        gfx.clear, draw_hills, draw_round, gfx.rect, draw_player, text.render,
+        project, project_hill, project_round, project_box, project_ball, project_player, project_text, layout,
+        gfx.clear, draw_hills, draw_round, gfx.rect, draw_box, draw_ball, draw_player, text.render,
         textedit.step, textedit.text, textedit.poll_run, button.poll, run_button, run_it,
         panel.render, textedit.render, textview.render, button.render,
         gfx.present, gfx.poll, done,
