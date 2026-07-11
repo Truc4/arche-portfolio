@@ -246,6 +246,24 @@ rigid_gravity :: map (query { lvel, mi })(lvel) {
   lvel.y = lvel.y + GRAV * select(mi.x > 0.0, 1.0, 0.0);
 }
 
+// World-bounds confine: a dynamic body's centre is clamped into the arena and velocity into a wall is
+// zeroed. The static rigid walls do the real collision; this only fires when a body would leave the bin —
+// e.g. squeezed between the player and a wall (over-constrained, the solver can't win) — so nothing can be
+// shoved out of the world. Statics (mi.x = 0, at the walls) are left alone by the `dyn` guard.
+confine :: map (query { pos, lvel, ext, mi })(pos, lvel) {
+  dyn := select(mi.x > 0.0, 1.0, 0.0);
+  lox := ARENA_L + ext.x;    hix := ARENA_R - ext.x;
+  loy := ARENA_TOP + ext.y;  hiy := ARENA_FLOOR - ext.y;
+  lvel.x = select(pos.x <= lox && lvel.x < 0.0, 0.0, lvel.x);
+  lvel.x = select(pos.x >= hix && lvel.x > 0.0, 0.0, lvel.x);
+  lvel.y = select(pos.y <= loy && lvel.y < 0.0, 0.0, lvel.y);
+  lvel.y = select(pos.y >= hiy && lvel.y > 0.0, 0.0, lvel.y);
+  cx := select(pos.x < lox, lox, pos.x);  cx = select(cx > hix, hix, cx);
+  cy := select(pos.y < loy, loy, pos.y);  cy = select(cy > hiy, hiy, cy);
+  pos.x = select(dyn > 0.5, cx, pos.x);
+  pos.y = select(dyn > 0.5, cy, pos.y);
+}
+
 // Project the boxes (foreground plane, plx = 1.0 → no parallax) to screen columns + half-extents.
 project_box :: system eff {
   map (query { handle }) eff {
@@ -669,12 +687,24 @@ run_it :: system eff {
       forever(seq({
         walk, pan, clamp_player,
         sync_player_rbody, rigid_gravity, rigid.integrate,
+        // 12 velocity iterations: a Jacobi/reduce solver needs a high count + strong under-relaxation
+        // (RELAX=0.3 in the device) to CONVERGE — few iterations limit-cycle (visible jitter). See the
+        // physics integration harness (arche tests/integration/physics.py) for the convergence evidence.
         rigid.solve_lin, rigid.solve_ang, rigid.apply,
         rigid.solve_lin, rigid.solve_ang, rigid.apply,
         rigid.solve_lin, rigid.solve_ang, rigid.apply,
         rigid.solve_lin, rigid.solve_ang, rigid.apply,
-        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
-        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_lin, rigid.solve_ang, rigid.apply,
+        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
+        rigid.solve_pos, rigid.apply_pos, rigid.solve_pos, rigid.apply_pos,
+        rigid.rest, confine,
         ui_input,
         project, project_hill, project_round, project_box, project_ball, project_player, project_text, layout,
         gfx.clear, draw_hills, draw_round, gfx.rect, draw_rbox, draw_ball, draw_player, text.render,
