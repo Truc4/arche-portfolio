@@ -10,16 +10,44 @@ PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
 PW           :: 102;
 
-// Physics sandbox — a bin of bodies to the LEFT of the playground (world-x < PANEL_WX = 700).
-ARENA_L     :: 40.0; // left wall (world-x)
-ARENA_R     :: 640.0; // right wall (world-x)
-ARENA_TOP   :: 200.0; // ceiling (world-y)
-ARENA_FLOOR :: 1140.0; // floor line == FLOOR prop top == player foot line
+// Physics sandbox — its OWN SECTION, far to the LEFT of the playground (which sits at x=700). The world's
+// RIGHT side is reserved for the timeline, so the sandbox lives out past the left edge of the scene, in its
+// own walled-off backdrop. The container is SHORT and OPEN-TOPPED (no ceiling): 200-tall walls standing on
+// the world ground. A RAMP outside the RIGHT wall (the approach side) carries you up over the lip and drops
+// you in; STAIRS inside the LEFT wall climb back out — their risers are taller than a rigid body can walk up
+// (it just butts into the vertical face), so getting out is what the JUMP (up arrow) is for.
+//
+// The arena is at NEGATIVE world-x, but a const's value must be a literal and `-1700.0` parses as an
+// expression — so the two x-bounds are stored as MAGNITUDES and negated at their (only two) use sites.
+ARENA_LX    :: 1700.0; // left wall inner face is at world-x = -ARENA_LX
+ARENA_RX    :: 500.0; // right wall inner face is at world-x = -ARENA_RX
+ARENA_TOP   :: 0.0; // NO CEILING. Only the escape net's upper bound, deliberately far above the walls (and
+// above where the bodies spawn) — the container is open, so a body may fly out of the top and fall back in.
+ARENA_FLOOR :: 1140.0; // floor line == world ground top == FLOOR prop top
+WALL_TOP    :: 940.0; // top of the container walls (200 tall) — open above this
+JUMP        :: 13.0; // jump impulse (px/frame); with GRAV=0.4 that is a ~210px apex — clears a 50px riser
+KEY_UP      :: 1002; // gfx arrow-up sentinel
+// The sandbox section's frame. These are the SAME colours the `panel` device paints the playground with
+// (extras/ui/panel/window/backend.arche: FRAME_BORDER / FRAME_BG), so the two sections read as the same
+// widget. We cannot literally use the `panel` device here: it renders in the foreground UI pass, and this
+// frame has to sit BEHIND the container and the bodies.
+SECT_BORDER :: 0x232838;
+SECT_BG     :: 0x0b0e14;
+SECT_TITLE  :: 0xcdd6f4; // panel's TITLE_COL
+SECT_TITLE_H :: 80; // title-bar height — the separator rule sits here, like the panel's
 GRAV        :: 0.4; // gravity, px/frame^2 (+y is down)
 GDT         :: 0.025; // gravity per TGS SUBSTEP = GRAV / rigid.SUBSTEPS(16); applied 16×/frame
-PHALF       :: 51.0; // player half-extent (a static rigid obstacle, PW=102)
+PHALF       :: 51.0; // player half-extent (a fully DYNAMIC rigid body, PW=102)
 BREST       :: 0.12; // box restitution (slight bounce)
 BFRIC       :: 0.45; // box friction
+// The PLAYER is deliberately slippery. Coulomb friction is bounded by mu * the normal impulse, and the impulse
+// needed to arrest you scales with how hard you are pressed in — so against a wall, mu = 0.45 buys enough
+// friction to carry your whole weight and you just hang there instead of sliding. Measured fall speed after 40
+// frames pinned to a wall: mu=0.45 -> 1.3px/frame (stuck), 0.2 -> 2.0, 0.05 -> 6.6, 0.0 -> free fall (16).
+// mu = 0.05 slides cleanly with a little drag. Ground control does not need friction at all (walk SETS the
+// velocity), so the one thing friction was doing — stopping you when you let go — is now WALK_DAMP.
+PFRIC       :: 0.05; // player friction
+WALK_DAMP   :: 0.80; // per-frame horizontal damping when grounded with no key held (replaces ground friction)
 BINVI       :: 0.0016; // box inverse inertia (tuned so boxes visibly tumble)
 
 CANVAS :: 0x12131c;
@@ -82,29 +110,54 @@ qsx    :: int;
 qsy    :: int;
 qr     :: int;
 qcol   :: int;
-sflag  :: int;
+sflag  :: int; // 1 = draw this Solid (walls/ramp/stairs); 0 = the world ground (the FLOOR prop draws it)
+ssx    :: int;
+ssy    :: int;
+shw    :: int;
+shh    :: int;
+gkey   :: int; // the frame's key, drained ONCE (see input_read)
+kw     :: int;
+kh     :: int;
+kcol   :: int;
+ksx    :: int;
+ksy    :: int;
+klay   :: int; // 0 = behind the container (section backdrop); 1 = in front of it (the ground plane)
 
+// World-anchored FLAT RECTS that must be drawn at a specific depth relative to the container's static bodies.
+// `klay` picks the layer: 0 = BEHIND the container (the sandbox's backdrop panel), 1 = IN FRONT of it (the
+// ground plane). Two layers are needed because the container is sandwiched: the backdrop must sit behind the
+// walls, while the ground must sit in front of them to bury the ramp's lower end (a ramp slab has thickness,
+// and its top face has to actually reach the ground line or you'd hit a lip and stop dead — so its underside
+// necessarily pokes below).
+//
+// This is also why the ground is NOT a Prop any more. Props are the PARALLAX scenery, and parallax means the
+// buildings SLIDE relative to the world as the camera moves — so as you walk to the sandbox, buildings from
+// the middle of the map drift across it. Drawn after the backdrop they painted right over the whole section.
+// Props now draw BEFORE the sandbox (they are background), and the ground draws after (it is foreground).
+Back  :: arche { pos, kw, kh, kcol, ksx, ksy, klay }
 Prop  :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill  :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
 // Rigid bodies (OBBs with rotation) — the `rigid` device solves them. Box renders as a rotated rect,
-// Ball as a circle (its rotation is invisible), Solid is the static floor/walls, Player is a static
-// obstacle synced to the walked position. All carry the rigid component set so they all collide.
-Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, bsx, bsy, bhw, bhh, bcol }
-Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, qsx, qsy, qr, qcol }
-Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sflag }
-Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor }
-Window      :: arche { handle, bg }
+// Ball as a circle (its rotation is invisible), Solid is the static ground/walls, and Player is just
+// another DYNAMIC tumbling box — the arrow keys set its horizontal velocity and the solver does the rest.
+// All carry the rigid component set so they all collide with each other.
+Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, bsx, bsy, bhw, bhh, bcol }
+Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, qsx, qsy, qr, qcol }
+Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, sflag, ssx, ssy, shw, shh }
+Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup }
+Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
-[12]Prop(11); // 7 scenery rects + 4 arena-bin walls (marked physics bounds)
+[4]Back(2); // [0] the sandbox's backdrop panel (behind the container), [1] the ground plane (in front)
+[12]Prop(6); // 6 PARALLAX buildings (the ground is a Back layer-1 rect; see Back) (the arena's walls/ramp/stairs are real Solids now, drawn from the bodies)
 [6]Hill(3);
 [8]Round(6);
 [8]Box(6);
 [6]Ball(4);
-[4]Solid(4); // static floor + left/right walls + ceiling (mi = 0); `sflag` makes its shape
-// distinct from the RBody storage floor below
+[16]Solid(7); // world ground + 2 container walls + ramp + 3 stairs (all mi = 0); `sflag` also keeps its
+// shape distinct from the RBody storage floor below
 [4]RBody; // rigid datasheet storage floor (unused; the archetypes carry the real bodies)
 [2]Player(1); // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
 // ../arche/tests/extras/query_singleton_pool_broadcast.arche
@@ -148,42 +201,39 @@ Button :: arche {
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
-  insert(Window { handle: win, bg: CANVAS });
+  insert(Window { handle: win, bg: CANVAS, gkey: 0 });
 }
 
 seed :: system {
-  // 7 scenery rects, then 4 arena-bin walls (left, right, floor, ceiling) at parallax 1.0 marking the
-  // clamp rect ARENA_L=40 / ARENA_R=640 / ARENA_TOP=200 / ARENA_FLOOR=1140 — bodies stop exactly here.
-  Prop.pos.x = {
-    2100.0,
-    1560.0,
-    600.0,
-    3750.0,
-    2760.0,
-    1080.0,
-    3240.0,
-    33.0,
-    647.0,
-    340.0,
-    340.0,
-  };
-  Prop.pos.y = {
-    1200.0,
-    915.0,
-    885.0,
-    900.0,
-    945.0,
-    975.0,
-    990.0,
-    670.0,
-    670.0,
-    1147.0,
-    193.0,
-  };
-  Prop.rw     = { 12000, 210, 270, 270, 330, 390, 510, 14, 14, 642, 642 };
-  Prop.rh     = { 120, 450, 510, 480, 390, 330, 300, 946, 946, 14, 14 };
-  Prop.rcolor = { FLOOR, S1, S2, S3, S4, S5, S6, BIN, BIN, BIN, BIN };
-  Prop.plx    = { 1.0, 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375, 1.0, 1.0, 1.0, 1.0 };
+  // PARALLAX scenery only — 6 buildings. The ground moved out to a Back rect (it must draw in FRONT of the
+  // container), and the arena's walls / ramp / stairs used to be decorative Prop rects that merely MARKED
+  // where the physics clamped; they are real static Solid bodies now, drawn straight from the physics, so
+  // the geometry you see IS the geometry you collide with.
+  Prop.pos.x  = { 1560.0, 600.0, 3750.0, 2760.0, 1080.0, 3240.0 };
+  Prop.pos.y  = { 915.0, 885.0, 900.0, 945.0, 975.0, 990.0 };
+  Prop.rw     = { 210, 270, 270, 330, 390, 510 };
+  Prop.rh     = { 450, 510, 480, 390, 330, 300 };
+  Prop.rcolor = { S1, S2, S3, S4, S5, S6 };
+  Prop.plx    = { 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375 };
+
+  // The sandbox section's backdrop: a panel behind the whole container (walls, ramp, stairs), so the area
+  // reads as its own place rather than bodies floating on the world ground — the same idea as the
+  // playground's panel. Bottom edge tucks just under the floor line; the FLOOR prop is drawn after and
+  // covers the overlap.
+  // The frame is sized to the CONTAINER's real extent, not eyeballed. The geometry spans:
+  //   left  = the left wall's outer face          = -1760 - 60  = -1820
+  //   right = the ramp's low end (it reaches the ground well outside the right wall) = -100
+  // so with a 60px margin the frame runs x = -1880 .. -40 (width 1820, centre -970), and vertically from
+  // above the ramp's high end down to just under the ground line (the ground rect covers the overlap).
+  //             frame         ground
+  Back.pos.x = { 0.0 - 960.0,   2100.0 };
+  Back.pos.y = { 895.0,         1200.0 };
+  Back.kw    = { 1840,          12000  };
+  Back.kh    = { 510,           120    };
+  Back.kcol  = { SECT_BG,       FLOOR  };
+  Back.klay  = { 0,             1      };  // 0 = behind the container, 1 = in front of it
+  Back.ksx   = { 0, 0 };
+  Back.ksy   = { 0, 0 };
 
   Hill.hpx  = { 900.0, 2400.0, 3900.0 };
   Hill.hpy  = { 1140.0, 1140.0, 1140.0 };
@@ -208,16 +258,21 @@ seed :: system {
   Player.rot.y  = { 0.0 };
   Player.ext.x  = { PHALF };
   Player.ext.y  = { PHALF };
-  Player.mi.x   = { 0.0 };
-  Player.mi.y   = { 0.0 }; // static (immovable) obstacle
-  Player.mat.x  = { 0.1 };
-  Player.mat.y  = { 0.5 };
+  // FULLY DYNAMIC, exactly like a Box: it falls, collides, is pushed by the boxes, and TUMBLES (invInertia
+  // = BINVI, not 0) — so it can be knocked onto its side. `walk` only sets its horizontal velocity; every
+  // other force on it comes from the solver.
+  Player.mi.x   = { 1.0 };
+  Player.mi.y   = { BINVI };
+  Player.mat.x  = { BREST };
+  Player.mat.y  = { PFRIC };
   Player.dimp.x = { 0.0 };
   Player.dimp.y = { 0.0 };
   Player.dang.x = { 0.0 };
   Player.dang.y = { 0.0 };
   Player.cor.x  = { 0.0 };
   Player.cor.y  = { 0.0 };
+  Player.sup.x  = { 0.0 };
+  Player.sup.y  = { 0.0 };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
@@ -229,7 +284,7 @@ seed :: system {
 seed_arena :: system {
   // 6 tumbling boxes — varied start angles (rot = unit (cos,sin)) and a little initial spin so they read
   // as rigid bodies the instant they drop. Some are non-square. mi = (invMass, invInertia).
-  Box.pos.x  = { 120.0, 250.0, 380.0, 500.0, 200.0, 440.0 };
+  Box.pos.x  = { 0.0 - 1350.0, 0.0 - 1200.0, 0.0 - 1050.0, 0.0 - 900.0, 0.0 - 760.0, 0.0 - 620.0 };
   Box.pos.y  = { 320.0, 260.0, 360.0, 280.0, 520.0, 560.0 };
   Box.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
@@ -249,10 +304,12 @@ seed_arena :: system {
   Box.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.bcol   = { BOXA, BOXB, BOXC, BOXA, BOXB, BOXC };
 
   // 4 balls — collide as (square) rigid bodies, rendered as circles (ext.x == ext.y == radius).
-  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };
+  Ball.pos.x  = { 0.0 - 1300.0, 0.0 - 1000.0, 0.0 - 800.0, 0.0 - 580.0 };
   Ball.pos.y  = { 240.0, 300.0, 220.0, 340.0 };
   Ball.lvel.x = { 0.0, 0.0, 0.0, 0.0 };
   Ball.lvel.y = { 0.0, 0.0, 0.0, 0.0 };
@@ -272,44 +329,75 @@ seed_arena :: system {
   Ball.dang.y = { 0.0, 0.0, 0.0, 0.0 };
   Ball.cor.x  = { 0.0, 0.0, 0.0, 0.0 };
   Ball.cor.y  = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.sup.x  = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.sup.y  = { 0.0, 0.0, 0.0, 0.0 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB };
 
   // Static bin: floor, left wall, right wall, ceiling (mi = 0). Faces align with the visual BIN props.
-  Solid.pos.x  = { 340.0, 30.0, 650.0, 340.0 };
-  Solid.pos.y  = { 1190.0, 670.0, 670.0, 190.0 };
-  Solid.lvel.x = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.lvel.y = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.spin.x = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.spin.y = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.rot.x  = { 1.0, 1.0, 1.0, 1.0 };
-  Solid.rot.y  = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.ext.x  = { 320.0, 10.0, 10.0, 320.0 };
-  Solid.ext.y  = { 50.0, 480.0, 480.0, 10.0 };
-  Solid.mi.x   = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.mi.y   = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.mat.x  = { 0.1, 0.1, 0.1, 0.1 };
-  Solid.mat.y  = { 0.5, 0.5, 0.5, 0.5 };
-  Solid.dimp.x = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.dimp.y = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.dang.x = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.dang.y = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.cor.x  = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.cor.y  = { 0.0, 0.0, 0.0, 0.0 };
-  Solid.sflag  = { 0, 0, 0, 0 };
+  // Solid[0] is the WORLD GROUND, not just the bin floor: it spans the whole walkable world (matching the
+  // FLOOR prop — centre x 2100, width 12000) with its top face at ARENA_FLOOR=1140. The player is a dynamic
+  // body now, so it needs ground under it everywhere, not only inside the bin.
+  // The container's real geometry — 7 static bodies (mi = 0), all at NEGATIVE world-x:
+  //   0 ground : the WORLD ground, top face at ARENA_FLOOR=1140, spanning the whole walkable world so the
+  //              dynamic player has floor everywhere. sflag=0 — the FLOOR prop already draws it, and it is
+  //              12000px wide, so we keep the OBB rasteriser off it.
+  //   1 wallR  : right (entry) wall, 200 tall, top at WALL_TOP=940. Thin — you come in OVER it, off the ramp.
+  //   2 wallL  : left (exit) wall, same height but WIDE (120px) so the player can actually stand on top of
+  //              it; a 20px lip would be unlandable.
+  //   3 ramp   : rotated slab outside the right wall, meeting the ground at x=-100 and climbing LEFT to
+  //              (-500, 867) — above WALL_TOP — so you run up it, off the end, and drop into the bin. Its
+  //              low end SINKS below the ground line on purpose: a slab has thickness, and its top face must
+  //              actually reach y=1140 or you'd hit a lip and stop dead (a rigid body cannot step up ANY
+  //              riser — only a continuous slope works). `draw_solid` runs BEFORE the props, so the FLOOR
+  //              prop paints over the buried part.
+  //   4-6 stairs: INSIDE the bin against the left wall, 50px risers climbing ground -> 1090 -> 1040 -> 990
+  //              -> the wall top at 940. Each riser needs the JUMP — that is the way out.
+  //                 ground   wallR    wallL    ramp     stair1   stair2   stair3
+  Solid.pos.x  = { 2100.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
+  Solid.pos.y  = { 1190.0,  1040.0,       1040.0,       1022.0,       1115.0,       1090.0,       1065.0 };
+  Solid.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.spin.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  // The ramp is the only rotated static: rot = (cos 35deg, sin 35deg). World +y is DOWN, so a POSITIVE rot.y
+  // means the slab descends as x increases — i.e. it climbs to the LEFT, up to the container's right wall.
+  Solid.rot.x  = { 1.0, 1.0, 1.0, 0.819, 1.0, 1.0, 1.0 };
+  Solid.rot.y  = { 0.0, 0.0, 0.0, 0.574, 0.0, 0.0, 0.0 };
+  Solid.ext.x  = { 6000.0, 10.0,  60.0,  244.0, 50.0, 50.0, 50.0 };
+  Solid.ext.y  = { 50.0,   100.0, 100.0, 18.0,  25.0, 50.0, 75.0 };
+  Solid.mi.x   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.mi.y   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.mat.x  = { 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1 };
+  Solid.mat.y  = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 };
+  Solid.dimp.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.dimp.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.dang.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Solid.sflag  = { 0, 1, 1, 1, 1, 1, 1 };   // 0 = world ground (drawn by the FLOOR prop, not rasterised)
+  Solid.ssx    = { 0, 0, 0, 0, 0, 0, 0 };
+  Solid.ssy    = { 0, 0, 0, 0, 0, 0, 0 };
+  Solid.shw    = { 0, 0, 0, 0, 0, 0, 0 };
+  Solid.shh    = { 0, 0, 0, 0, 0, 0, 0 };
 }
 
 // --- Physics sandbox systems -------------------------------------------------
 
-// The player is a STATIC rigid obstacle (mi = 0) that walks: teleport its body to the walked ppx each
-// frame, before the solver. As an infinite-mass body it shoves the dynamic bodies and is never moved.
+// The player is a FULLY DYNAMIC rigid body — the solver owns its position, exactly as it owns a box's. This
+// runs AFTER the solve and simply publishes the body's x to `ppx`, which the camera and the renderer read.
+// (It used to run the other way: `ppx` was the authority and the body was teleported to it each frame, which
+// is what made the player an infinite-mass obstacle. Now the physics is the authority and `ppx` is a view.)
 // Pure map — [2]Player extent (not 1) keeps this write off the other pools (the singleton-broadcast bug).
-sync_player_rbody :: map (query { ppx, pos })(pos) {
-  pos.x = ppx;
-  pos.y = PLAYER_Y;
+sync_player_ppx :: map (query { ppx, pos })(ppx) {
+  ppx = ppx + (pos.x - ppx); // `ppx` is its own scalar type — keep the expression ppx-typed
 }
 
-// Per-SUBSTEP gravity (world +y is down): add GDT to lvel on the DYNAMIC bodies only (mi.x > 0). Static
-// solids/player (mi.x = 0) get none. Run once per substep (16×/frame) so the total is GRAV per frame.
+// Per-SUBSTEP gravity (world +y is down): add GDT to lvel on the DYNAMIC bodies only (mi.x > 0). The static
+// solids (mi.x = 0) get none; the PLAYER does get it — it is a dynamic body and falls like everything else.
+// Run once per substep (16×/frame) so the total is GRAV per frame.
 rigid_gravity :: map (query { lvel, mi })(lvel) {
   lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
 }
@@ -324,23 +412,60 @@ rigid_gravity :: map (query { lvel, mi })(lvel) {
 // fighting the contact solver's tiny equilibrium penetration. (That turned out not to be the buzz the user
 // saw, but it is still a per-frame tug-of-war with the physics and has no business running on a settled body.)
 // Statics (mi.x = 0) are skipped by the `dyn` guard.
+//
+// It applies to the BIN's bodies ONLY — boxes and balls. The PLAYER must be excluded: it is a dynamic body
+// now, so a blanket `query { pos, lvel, ext, mi }` would match it too and trap it inside the arena rect
+// (x 40..640) — it could never walk out of the bin. Hence the two archetype-scoped maps below (`bsx` and
+// `qsx` are in the queries purely to select Box and Ball; nothing reads them).
 ESC_MARGIN :: 24.0;
-confine :: map (query { pos, lvel, ext, mi })(pos, lvel) {
-  dyn := select(mi.x > 0.0, 1.0, 0.0);
-  lox := ARENA_L + ext.x - ESC_MARGIN;
-  hix := ARENA_R - ext.x + ESC_MARGIN;
-  loy := ARENA_TOP + ext.y - ESC_MARGIN;
-  hiy := ARENA_FLOOR - ext.y + ESC_MARGIN;
-  outx := dyn * select(pos.x < lox, 1.0, select(pos.x > hix, 1.0, 0.0));
-  outy := dyn * select(pos.y < loy, 1.0, select(pos.y > hiy, 1.0, 0.0));
-  cx := select(pos.x < lox, lox, pos.x);
+
+esc_pos :: func(p: pos, e: ext, m: mi) -> pos {
+  lox := (0.0 - ARENA_LX) + e.x - ESC_MARGIN;   // the arena sits at negative world-x; see ARENA_LX
+  hix := (0.0 - ARENA_RX) - e.x + ESC_MARGIN;
+  loy := ARENA_TOP + e.y - ESC_MARGIN;
+  hiy := ARENA_FLOOR - e.y + ESC_MARGIN;
+  dyn := select(m.x > 0.0, 1.0, 0.0);
+  cx := select(p.x < lox, lox, p.x);
   cx = select(cx > hix, hix, cx);
-  cy := select(pos.y < loy, loy, pos.y);
+  cy := select(p.y < loy, loy, p.y);
   cy = select(cy > hiy, hiy, cy);
-  pos.x = select(outx > 0.5, cx, pos.x);
-  pos.y = select(outy > 0.5, cy, pos.y);
-  lvel.x = select(outx > 0.5, 0.0, lvel.x);
-  lvel.y = select(outy > 0.5, 0.0, lvel.y);
+  outx := dyn * select(p.x < lox, 1.0, select(p.x > hix, 1.0, 0.0));
+  outy := dyn * select(p.y < loy, 1.0, select(p.y > hiy, 1.0, 0.0));
+  // bind before returning: a `select` directly in a return-tuple slot mis-types as i32 (compiler bug)
+  rx := select(outx > 0.5, cx, p.x);
+  ry := select(outy > 0.5, cy, p.y);
+  return (rx, ry);
+}
+
+esc_vel :: func(p: pos, v: lvel, e: ext, m: mi) -> pos {
+  lox := (0.0 - ARENA_LX) + e.x - ESC_MARGIN;
+  hix := (0.0 - ARENA_RX) - e.x + ESC_MARGIN;
+  loy := ARENA_TOP + e.y - ESC_MARGIN;
+  hiy := ARENA_FLOOR - e.y + ESC_MARGIN;
+  dyn := select(m.x > 0.0, 1.0, 0.0);
+  outx := dyn * select(p.x < lox, 1.0, select(p.x > hix, 1.0, 0.0));
+  outy := dyn * select(p.y < loy, 1.0, select(p.y > hiy, 1.0, 0.0));
+  rx := select(outx > 0.5, 0.0, v.x);
+  ry := select(outy > 0.5, 0.0, v.y);
+  return (rx, ry);
+}
+
+confine_box :: map (query { pos, lvel, ext, mi, bsx })(pos, lvel) {
+  np := esc_pos(pos, ext, mi);
+  nv := esc_vel(pos, lvel, ext, mi);
+  pos.x = np.x;
+  pos.y = np.y;
+  lvel.x = nv.x;
+  lvel.y = nv.y;
+}
+
+confine_ball :: map (query { pos, lvel, ext, mi, qsx })(pos, lvel) {
+  np := esc_pos(pos, ext, mi);
+  nv := esc_vel(pos, lvel, ext, mi);
+  pos.x = np.x;
+  pos.y = np.y;
+  lvel.x = nv.x;
+  lvel.y = nv.y;
 }
 
 // Project the boxes (foreground plane, plx = 1.0 → no parallax) to screen columns + half-extents.
@@ -359,6 +484,50 @@ project_box :: system eff {
         bsy = i32(s.y);
         bhw = i32(ext.x * zoom);
         bhh = i32(ext.y * zoom);
+      };
+    };
+  };
+}
+
+// Project the sandbox's backdrop panel (parallax 1.0, like the container it sits behind).
+project_back :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, kw, kh, ksx, ksy })(ksx, ksy) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        ksx = i32(s.x) - kw / 2;
+        ksy = i32(s.y) - kh / 2;
+      };
+    };
+  };
+}
+
+// Project the static container geometry (walls / ramp / stairs) to screen. sflag = 0 (the world ground) gets
+// ZERO half-extents so the rasteriser skips it entirely — it is 12000px wide and the FLOOR prop already draws
+// it; rasterising it as an OBB would scan the whole world every frame.
+project_solid :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, ext, sflag, ssx, ssy, shw, shh })(ssx, ssy, shw, shh) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        hw := i32(ext.x * zoom);
+        hh := i32(ext.y * zoom);
+        ssx = i32(s.x);
+        ssy = i32(s.y);
+        shw = select(sflag == 1, hw, 0);
+        shh = select(sflag == 1, hh, 0);
       };
     };
   };
@@ -436,6 +605,133 @@ draw_rbox :: system (query { framebuffer })(framebuffer) eff {
   };
 }
 
+// The two Back layers. `draw_back` (klay 0) paints the sandbox's backdrop BEHIND the container; `draw_ground`
+// (klay 1) paints the world ground plane IN FRONT of it, burying the ramp's lower end. Same kernel, opposite
+// side of `draw_solid` in the schedule. A rect whose layer does not match collapses to zero width, so the
+// scan loop never runs — that is how one archetype serves two depths without a branch.
+draw_back :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { ksx, ksy, kw, kh, kcol, klay }) eff {
+      live := select(klay == 0, 1, 0);
+      bw := kw * live;
+      bh := kh * live;
+      // 2px border + inset fill + a title-bar rule: the same three strokes `panel.render` lays down, so the
+      // sandbox frame is visually the same widget as the playground's.
+      y0 := ksy;
+      y1 := ksy + bh;
+      x0 := ksx;
+      x1 := ksx + bw;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          inx := select(xx > ksx + 1 && xx < ksx + bw - 2, 1, 0);
+          iny := select(yy > ksy + 1 && yy < ksy + bh - 2, 1, 0);
+          rule := select(yy == ksy + SECT_TITLE_H, 1, 0);
+          inner := select(inx == 1 && iny == 1, 1, 0);
+          body := select(inner == 1, kcol, SECT_BORDER);
+          framebuffer[yy * vw + xx] = select(rule == 1 && inx == 1, SECT_BORDER, body);
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_ground :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { ksx, ksy, kw, kh, kcol, klay }) eff {
+      live := select(klay == 1, 1, 0);
+      y0 := ksy;
+      y1 := ksy + kh * live;
+      x0 := ksx;
+      x1 := ksx + kw * live;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = kcol;
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+// The container itself — walls, ramp, stairs — drawn as rotated OBBs straight from the STATIC BODIES, with
+// the same rasteriser as the boxes. The ramp is a rotated slab, so this is the only way it can be drawn
+// truthfully: what you see is exactly what the solver collides against. shw/shh are 0 for the world ground,
+// which makes the coverage test always false, so it costs nothing.
+draw_solid :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { ssx, ssy, shw, shh, rot }) eff {
+      diag := shw + shh;
+      y0   := ssy - diag;
+      y1   := ssy + diag;
+      x0   := ssx - diag;
+      x1   := ssx + diag;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      hw := float(shw);
+      hh := float(shh);
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          dx := float(xx - ssx) + 0.5; // pixel CENTRES — see draw_rbox
+          dy := float(yy - ssy) + 0.5;
+          lx := dx * rot.x + dy * rot.y;
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
+            framebuffer[yy * vw + xx] = BIN;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
 // Filled disc per ball (mirrors draw_round), centre qsx,qsy radius qr.
 draw_ball :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
@@ -475,11 +771,67 @@ draw_ball :: system (query { framebuffer })(framebuffer) eff {
   };
 }
 
+// WALK — the only thing that is not pure physics. Arrow keys set the player's horizontal VELOCITY (a target
+// velocity, once per frame, before the substeps). Everything else about the player — gravity, contacts,
+// friction, tumbling, being shoved by a box — is the solver's. When no key is held we deliberately do NOT
+// zero lvel.x: we leave it to ground friction, so the player can still be pushed around while standing idle
+// (and keeps its momentum after a shove) instead of being nailed in place by the input.
+// Drain the key queue EXACTLY ONCE per frame into Window.gkey. `gfx.key` is drain-and-clear — it hands out a
+// key and forgets it — so if both `jump` and `ui_input` called it, whichever ran first would eat the key and
+// the other would see nothing (the editor would randomly drop keystrokes, or the jump would randomly not
+// fire). One reader, two consumers.
+input_read :: system eff {
+  map (query { handle, gkey })(gkey) eff {
+    gfx.key(handle)(k:);
+    gkey = k;
+  };
+}
+
+// JUMP (up arrow) — a velocity impulse, allowed ONLY when standing on FLOOR.
+//
+// The gate is `sup.y > 0.3`, not `cor.x > 0`. `cor.x` is just the contact COUNT, so it was true when you were
+// merely scraping a WALL — which let you jump off the wall, re-stick, and jump again, climbing it forever.
+// `sup` is the summed contact NORMAL (from rigid.supports), and its `.y` accumulates ONLY contacts flatter
+// than the device's SUP_GROUND (~25 degrees). So a wall (normal.y = 0) and the 35-degree ramp (0.82) both
+// contribute nothing to `sup.y` and cannot be jumped from — only real floor can: the ground, a stair tread,
+// or the top of a box you are standing on.
+jump :: system eff {
+  map (query { gkey }) eff {
+    map (query { ppx, lvel, sup })(lvel) eff {
+      grounded := select(sup.y > 0.3, 1.0, 0.0);
+      pressed := select(gkey == KEY_UP, 1.0, 0.0);
+      go := grounded * pressed;
+      up := 0.0 - JUMP;
+      lvel.y = select(go > 0.5, up, lvel.y);
+    };
+  };
+}
+
 walk :: system eff {
   map (query { handle }) eff {
     gfx.axis_x(handle)(dx:);
-    map (query { ppx })(ppx) eff {
-      ppx = ppx + float(dx) * SPEED;
+    // `ppx` is in the query ONLY to scope this to the Player archetype — a bare `query { lvel }` would match
+    // every rigid body (Box, Ball, Solid) and drive the whole world with the arrow keys.
+    //
+    // Do NOT command velocity into a surface we are already flush against. `sup` is the summed contact normal
+    // (rigid.supports), so `sup.x` has the same sign as the direction of whatever is blocking us. Re-commanding
+    // SPEED into a wall every frame is what made the player STICK to walls: the solver has to kill 9px/frame of
+    // velocity, which takes a large normal impulse, and Coulomb friction is bounded by mu * that impulse — with
+    // mu = 0.45 the friction available dwarfs gravity, so you just hang there. (Lowering friction cannot fix it:
+    // the bound scales with how hard you push, so ANY friction plus a constant push clings.) Stop pushing and
+    // the normal impulse collapses to nothing, so there is no friction to hold you and you simply slide down.
+    map (query { ppx, lvel, sup })(lvel) eff {
+      held := select(dx != 0, 1.0, 0.0);
+      into := float(dx) * sup.x; // > 0 ⇒ the wall blocking us is the way we are pressing
+      blocked := select(into > 0.3, 1.0, 0.0);
+      drive := held * (1.0 - blocked);
+      tgt := float(dx) * SPEED;
+      // No key: damp to a stop, but only while GROUNDED. The player has almost no friction (see PFRIC), so
+      // this is what stops it — and gating on `sup.y` means we never damp in mid-air, which would flatten the
+      // arc of a jump and kill the slide down a wall.
+      grounded := select(sup.y > 0.3, 1.0, 0.0);
+      coast := lvel.x * select(grounded > 0.5, WALK_DAMP, 1.0);
+      lvel.x = select(drive > 0.5, tgt, coast);
     };
   };
 }
@@ -493,18 +845,27 @@ pan :: system eff {
   };
 }
 
+// Keep the player on screen. It now clamps the BODY (position + velocity), not `ppx` — `ppx` is a view of the
+// body, so writing it would just be overwritten by `sync_player_ppx`. Velocity into the edge is zeroed too, or
+// the solver would keep integrating the player into a wall it is being held out of.
 clamp_player :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye }) eff {
-      map (query { ppx })(ppx) eff {
+      map (query { ppx, pos, lvel })(pos, lvel) eff {
         lo := eye.x - float(vw) * 0.5 + float(PW);
         hi := eye.x + float(vw) * 0.5 - float(PW);
-        if (ppx < lo) {
-          ppx = lo;
+        if (pos.x < lo) {
+          pos.x = lo;
+          if (lvel.x < 0.0) {
+            lvel.x = 0.0;
+          }
         }
-        if (ppx > hi) {
-          ppx = hi;
+        if (pos.x > hi) {
+          pos.x = hi;
+          if (lvel.x > 0.0) {
+            lvel.x = 0.0;
+          }
         }
       };
     };
@@ -572,15 +933,18 @@ project_player :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      map (query { ppx, prx, pry })(prx, pry) eff {
+      // The player's height is now the SOLVER's (it falls, stands on boxes, gets shoved) — not the fixed
+      // PLAYER_Y foot line. prx/pry are its screen CENTRE (the rotated rasteriser wants a centre, not a
+      // corner), mirroring project_box.
+      map (query { pos, prx, pry })(prx, pry) eff {
         s := camera.to_screen(
-          vec.mk(ppx, PLAYER_Y),
+          vec.mk(pos.x, pos.y),
           eye,
           zoom,
           vec.mk(float(vw) * 0.5, float(vh) * 0.5),
         );
-        prx = i32(s.x) - PW / 2;
-        pry = i32(s.y) - PW / 2;
+        prx = i32(s.x);
+        pry = i32(s.y);
       };
     };
   };
@@ -656,20 +1020,25 @@ draw_round :: system (query { framebuffer })(framebuffer) eff {
   };
 }
 
+// The player TUMBLES now, so it is drawn as a rotated OBB (identical to draw_rbox) instead of an upright
+// rect. prx/pry are its screen centre; `rot` is the body's orientation straight from the solver.
 draw_player :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
-    map (query { prx, pry }) {
-      y0 := pry;
-      y1 := pry + PW;
+    map (query { prx, pry, rot }) {
+      hw   := float(PHALF);
+      hh   := float(PHALF);
+      diag := PW; // conservative bound for any rotation (PHALF + PHALF)
+      y0   := pry - diag;
+      y1   := pry + diag;
+      x0   := prx - diag;
+      x1   := prx + diag;
       if (y0 < 0) {
         y0 = 0;
       }
       if (y1 > vh) {
         y1 = vh;
       }
-      x0 := prx;
-      x1 := prx + PW;
       if (x0 < 0) {
         x0 = 0;
       }
@@ -680,8 +1049,14 @@ draw_player :: system (query { framebuffer })(framebuffer) eff {
       for (; yy < y1;) {
         xx := x0;
         for (; xx < x1;) {
-          framebuffer[yy * vw + xx] = PLAYER;
-          xx                        = xx + 1;
+          dx := float(xx - prx) + 0.5; // pixel CENTRES — see draw_rbox
+          dy := float(yy - pry) + 0.5;
+          lx := dx * rot.x + dy * rot.y; // inverse-rotate into the body's local frame
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
+            framebuffer[yy * vw + xx] = PLAYER;
+          }
+          xx = xx + 1;
         }
         yy = yy + 1;
       }
@@ -738,6 +1113,34 @@ seed_text :: system eff {
       tlen : 18,
       tsz  : 40,
       tcol : PLAYER,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  // The sandbox section's title, sitting in the frame's TITLE BAR (above the separator rule) in the panel
+  // device's own title colour and size — anchored to the world (tplx = 1.0) so it stays with the container.
+  insert(
+    Sign {
+      twx  : 0.0 - 960.0,
+      twy  : 672.0,
+      tplx : 1.0,
+      tstr : "RIGID BODY SANDBOX",
+      tlen : 18,
+      tsz  : 24,
+      tcol : SECT_TITLE,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 0.0 - 960.0,
+      twy  : 760.0,
+      tplx : 1.0,
+      tstr : "ARROWS TO WALK - UP TO JUMP",
+      tlen : 27,
+      tsz  : 24,
+      tcol : CLOUD,
       tx   : 0,
       ty   : 0,
     },
@@ -933,9 +1336,9 @@ layout :: system eff {
 }
 
 ui_input :: system eff {
-  map (query { handle }) eff {
+  map (query { handle, gkey }) eff {
     gfx.dims(handle)(gw:, gh:);
-    gfx.key(handle)(gk:);
+    gk := gkey; // already drained by `input_read` — do NOT call gfx.key again (drain-and-clear)
     gfx.mouse_x(handle)(gmx:);
     gfx.mouse_y(handle)(gmy:);
     gfx.mouse_down(handle)(gmd:);
@@ -943,8 +1346,14 @@ ui_input :: system eff {
       view.w = gw;
       view.h = gh;
     };
+    // MOVEMENT keys must not reach the editor. `gk` is the frame's one drained key and it drives the player —
+    // but it was also piped straight into Editor.key, so every step you took ALSO moved the editor's cursor.
+    // In the browser the editor is a real DOM element, and arrow keys landing on it while it sits off-screen
+    // make the browser scroll it into view, shifting the page under the canvas. Arrows belong to the world;
+    // everything else (typing) belongs to the editor.
     map (query { key })(key) eff {
-      key = gk;
+      arrow := select(gk >= 1000 && gk <= 1003, 1, 0);
+      key = select(arrow == 1, 0, gk);
     };
     map (query { mouse, mouse_down })(mouse, mouse_down) eff {
       mouse.x    = gmx;
@@ -1019,10 +1428,17 @@ phys_sub :: func() -> Schedule {
       forever(
         seq(
           {
+            // Input first. `input_read` drains the key queue once; `walk`/`jump` only set the player body's
+            // VELOCITY, then the solver does the rest (the player is a fully dynamic tumbling body now —
+            // gravity, contacts, friction, shoves, tumbling).
+            input_read,
+            // `supports` folds each body's summed contact NORMAL into `sup` (once per frame, not per substep).
+            // walk/jump read it to know what they are touching and WHICH WAY: a real grounded test, and which
+            // side a wall is on. It uses last frame's solved positions, which is exactly what input wants.
+            rigid.supports,
             walk,
+            jump,
             pan,
-            clamp_player,
-            sync_player_rbody,
             // Substepped TGS-Soft rigid solve: 16 substeps/frame (phys_sub = gravity + contact-count + 2 soft
             // velocity iterations + integrate). Rigidity comes from the small step + the device's soft-constraint
             // velocity bias (no position pass), so stacks settle solid instead of springing. See rigid.arche.
@@ -1042,24 +1458,44 @@ phys_sub :: func() -> Schedule {
             phys_sub(),
             phys_sub(),
             phys_sub(),
-            confine,
+            confine_box,
+            confine_ball,
+            // AFTER the solve: keep the player on screen, then publish the solved body position to `ppx` for
+            // the camera and the renderer to read.
+            clamp_player,
+            sync_player_ppx,
             ui_input,
             project,
             project_hill,
             project_round,
             project_box,
             project_ball,
+            project_back,
+            project_solid,
             project_player,
             project_text,
             layout,
+            // Back-to-front. The PARALLAX layers (hills, clouds/bushes, buildings) all go first — they are
+            // background, and because they parallax they SLIDE across the world as the camera moves, so any
+            // of them can drift over the sandbox; they must be underneath it. Then the sandbox's backdrop,
+            // then the container's static bodies, then the ground plane (which buries the ramp's lower end),
+            // then the dynamic bodies, then the player.
             gfx.clear,
             draw_hills,
             draw_round,
             gfx.rect,
+            draw_back,
+            // TEXT IS BACKGROUND. The signs are PARALLAX — they slide across the world as the camera moves, so
+            // signs from the middle of the map drift over the sandbox. Drawn last (the old order) they painted
+            // straight over the container's walls, which is exactly backwards: a parallax layer is scenery and
+            // belongs behind solid geometry. Rendering here puts every sign behind the walls and the bodies,
+            // while still landing ON the sandbox frame (drawn just above) so its title reads in the title bar.
+            text.render,
+            draw_solid,
+            draw_ground,
             draw_rbox,
             draw_ball,
             draw_player,
-            text.render,
             textedit.step,
             textedit.text,
             textedit.poll_run,
