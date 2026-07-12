@@ -83,10 +83,10 @@
           return;
         }
         const k = e.key;
-        if (k === "ArrowLeft" || k === "a" || k === "A") this.keys.left = down;
-        else if (k === "ArrowRight" || k === "d" || k === "D") this.keys.right = down;
-        else if (k === "ArrowUp" || k === "w" || k === "W" || k === " ") this.keys.up = down;
-        else if (k === "ArrowDown" || k === "s" || k === "S") this.keys.down = down;
+        if (k === "ArrowLeft") this.keys.left = down;
+        else if (k === "ArrowRight") this.keys.right = down;
+        else if (k === "ArrowUp" || k === " ") this.keys.up = down;
+        else if (k === "ArrowDown") this.keys.down = down;
         if (down) {
           let code = NAMED[k];
           if (code === undefined && k.length === 1) code = k.charCodeAt(0);

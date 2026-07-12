@@ -5,34 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>curt reyes · portfolio</title>
   <style>
-    /* A walkable portfolio world (WebGL canvas + DOM text signs) that also EMBEDS the arche playground (a
-       real <textarea> + <pre>, positioned at a world anchor to the left). #app is a full-viewport positioned
-       container: the gfx host renders into the <canvas> inside it; the editor/screen hosts append their panels
-       to it and the driver's `place` seams position them absolutely over the canvas as the world scrolls. */
-    /* `overflow: clip`, NOT `hidden`. A `hidden` box is still a SCROLL CONTAINER — it just has no visible
-       scrollbars — so the browser is free to scroll it programmatically, and it does: the playground is a real
-       off-screen <textarea>, and pressing an arrow key while it holds focus makes the browser scroll #app
-       sideways to bring the focused element into view. That drags the <canvas> along with it, so its right
-       edge lands in the middle of the screen as a hard vertical line, with the page background and the
-       further-right DOM panels showing beyond it — and the player appears to hit an invisible wall there,
-       because `clamp_player` clamps to the canvas width. `clip` is not a scroll container, so none of that
-       can happen. The scroll seam below is a belt-and-braces reset for older engines that lack `clip`. */
     html, body { margin: 0; height: 100%; background: #12131c; overflow: clip; }
     #app { position: relative; width: 100vw; height: 100vh; overflow: clip; }
     #screen { display: block; width: 100vw; height: 100vh; }
 
-    /* The world signs (text=dom) are <span>s in #text-layer that opt into pointer-events so they're
-       selectable — but that swallows wheel/touch over them and breaks scroll-to-pan. Make them inert so
-       the wheel/touch fall through to the gfx <canvas> underneath. (Web-only: native has no DOM text layer.)
-       The playground's layout lives in the arche program (`layout` in portfolio.arche), not here. */
     #text-layer span { pointer-events: none !important; }
 
-    /* The on-screen touch pads (ids 1/2/3 = LEFT/RIGHT/JUMP; 0 is RUN and keeps the default skin). Lifted from
-       the old site's `.touchButton`: a raised physical key — light face, darker rim, and a hard offset shadow
-       standing it off the page. The press is the whole point: `.is-down` (set by the button host on
-       pointerdown) drops the key ONTO its own shadow — translateY by exactly the shadow depth, shadow removed,
-       face darkened — over 50ms linear. That is what makes it feel like a button instead of a rectangle.
-       The arche `layout` owns position/size (in vmin, so they scale with the device); this is purely the skin. */
     #ui-button-1, #ui-button-2, #ui-button-3 {
       background: #c8ccd8;
       border: 0.7vmin solid #949aad;
@@ -43,12 +21,9 @@
       align-items: center;
       justify-content: center;
     }
-    /* Rounded outer edges on the left/right pair, as on the old site — reads as a D-pad rather than two tiles. */
     #ui-button-1 { border-top-left-radius: 50%; border-bottom-left-radius: 50%; }
     #ui-button-2 { border-top-right-radius: 50%; border-bottom-right-radius: 50%; }
 
-    /* No text on the pads — the glyphs are pure CSS triangles (a border trick: a zero-size box whose three
-       other borders are transparent). Text would need a font, would sit on a baseline, and would scale badly. */
     #ui-button-1::before, #ui-button-2::before, #ui-button-3::before {
       content: "";
       display: block;
@@ -56,14 +31,14 @@
       height: 0;
       border: 2.2vmin solid transparent;
     }
-    #ui-button-1::before { border-right-color: #4a5068; margin-right: 2.2vmin; } /* ◀ */
-    #ui-button-2::before { border-left-color: #4a5068;  margin-left: 2.2vmin; }  /* ▶ */
-    #ui-button-3::before { border-bottom-color: #4a5068; margin-bottom: 2.2vmin; } /* ▲ jump */
+    #ui-button-1::before { border-right-color: #4a5068; margin-right: 2.2vmin; }
+    #ui-button-2::before { border-left-color: #4a5068; margin-left: 2.2vmin; }
+    #ui-button-3::before { border-bottom-color: #4a5068; margin-bottom: 2.2vmin; }
 
     #ui-button-1.is-down, #ui-button-2.is-down, #ui-button-3.is-down {
       background: #9aa0b2;
       box-shadow: none;
-      transform: translateY(1.5vmin); /* exactly the shadow depth — the key sinks onto the page */
+      transform: translateY(1.5vmin);
       filter: none;
     }
   </style>
@@ -71,19 +46,12 @@
 <body>
   <div id="app"><canvas id="screen" data-status="idle" tabindex="0"></canvas></div>
 
-  <!-- ONE wasm instance; archeRun merges every device host from portfolio.hosts.js (gfx + text + editor +
-       screen + compiler). The compiler host runs arche-compile.wasm (WasiFS) + the compiled program (WasiShim)
-       in-process; load wasi.js AFTER arche-web.js (both define a global WasiShim, the compiler host needs
-       wasi.js's full one with .start()). -->
   <script src="analyzer/wasi-fs.js"></script>
   <script src="arche-web.js"></script>
   <script src="wasi.js"></script>
   <script src="portfolio.hosts.js"></script>
   <script>
     const app = document.getElementById("app");
-    // Belt-and-braces for engines without `overflow: clip`: if anything ever manages to scroll the container
-    // (focus-into-view on the off-screen playground <textarea> is the way it happens), snap it straight back.
-    // A scrolled #app slides the <canvas> sideways, which reads as an invisible wall mid-screen.
     const unscroll = () => { if (app.scrollLeft || app.scrollTop) { app.scrollLeft = 0; app.scrollTop = 0; } };
     app.addEventListener("scroll", unscroll, { passive: true });
     addEventListener("scroll", () => { scrollTo(0, 0); }, { passive: true });
