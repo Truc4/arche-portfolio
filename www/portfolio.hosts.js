@@ -103,10 +103,17 @@
         this.mx = Math.round((e.clientX - r.left) * (c.width / (r.width || 1)));
         this.my = Math.round((e.clientY - r.top) * (c.height / (r.height || 1)));
       };
+      // A Touch has clientX/clientY just like a MouseEvent, so the same conversion serves both.
+      const toRenderTouch = (t) => toRender(t);
       if (typeof c.addEventListener === "function") {
         c.addEventListener("mousemove", toRender);
         c.addEventListener("mousedown", (e) => { toRender(e); if (e.button === 0) this.mdown = 1; });
         addEventListener("mouseup", (e) => { if (e.button === 0) this.mdown = 0; });
+      }
+      // Touch releases anywhere end the press — a finger can leave the canvas before lifting.
+      if (typeof addEventListener === "function") {
+        addEventListener("touchend", () => { this.mdown = 0; }, { passive: true });
+        addEventListener("touchcancel", () => { this.mdown = 0; }, { passive: true });
       }
 
       // Horizontal scroll accumulator (render px), drained by gfx_be_scroll — fed by the mouse WHEEL and a TOUCH
@@ -135,6 +142,12 @@
         c.addEventListener("touchstart", (e) => {
           stopMomentum(); // a fresh touch grabs the world — kill any in-flight fling
           if (e.touches.length) { const r = c.getBoundingClientRect(); lastTouchX = (e.touches[0].clientX - r.left) * scaleX(); samples = [{ x: lastTouchX, t: nowMs() }]; }
+          // A touch on the canvas is a POINTER PRESS on the world, not just a scroll gesture. Without this,
+          // `mdown` is only ever written by mouse events, so on a phone nothing can observe a press on the
+          // world: a driver could never take keyboard focus BACK from an embedded <textarea> (it has no click
+          // edge to react to) and the player would stay dead forever. The scroll/fling accumulation above is
+          // untouched — a swipe both pans the world AND counts as touching it, which is what you want.
+          if (e.touches.length) { toRenderTouch(e.touches[0]); this.mdown = 1; }
         }, { passive: false });
         c.addEventListener("touchmove", (e) => {
           if (e.touches.length) {
@@ -146,6 +159,7 @@
             const t = nowMs();
             samples.push({ x: tx, t });
             while (samples.length > 2 && t - samples[0].t > 80) samples.shift(); // keep only the last ~80ms
+            toRenderTouch(e.touches[0]); // keep the pointer position live under a dragging finger
           }
           e.preventDefault();
         }, { passive: false });
@@ -264,6 +278,13 @@
         gfx_be_mouse_y() { return self.my; },
         gfx_be_mouse_down() { return self.mdown; },
         gfx_be_text_focus() { return self.textFocused() ? 1 : 0; },
+        // Is this a TOUCH device? `pointer: coarse` is the standard test — it asks about the primary input's
+        // precision, not the screen size, so a narrow desktop window stays "fine" and a landscape phone stays
+        // "coarse". A driver uses it to show on-screen controls; native backends report 0 (they have a mouse).
+        gfx_be_coarse_pointer() {
+          if (typeof matchMedia !== "function") return 0;
+          return matchMedia("(pointer: coarse)").matches ? 1 : 0;
+        },
         // Take the keyboard back for the world: blur the focused text field and focus the canvas. Also clear
         // the held axis — the blur means we will never see the keyup for anything currently held.
         gfx_be_release_text() {
@@ -526,36 +547,81 @@
 (function () {
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
-      this.clicked = false;
       this.dec = new TextDecoder();
-      let b = document.getElementById("ui-button");
-      if (!b) {
-        b = document.createElement("button");
-        b.id = "ui-button";
-        b.type = "button";
-        b.style.cssText = "position:absolute;box-sizing:border-box;cursor:pointer;" +
-          "border:none;border-radius:0.4em;background:#e4694e;color:#160d0a;" +
-          "font:600 1em ui-sans-serif,system-ui,sans-serif;";
-        (rt.root || document.body).appendChild(b);
+      // Default skin, injected once. A page can restyle any button by id (`#ui-button-<bid>`) because nothing
+      // here is inline. `.is-down` is the PRESSED state, toggled on pointerdown/up — a button you can HOLD has
+      // to look held, and CSS is the only place that animation belongs.
+      if (!document.getElementById("arche-btn-css")) {
+        const st = document.createElement("style");
+        st.id = "arche-btn-css";
+        st.textContent =
+          ".arche-btn{cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;" +
+          "-webkit-tap-highlight-color:transparent;border:none;border-radius:0.4em;background:#e4694e;" +
+          "color:#160d0a;z-index:6;font:600 1em ui-sans-serif,system-ui,sans-serif;" +
+          "transition:transform 50ms linear, box-shadow 50ms linear, background 50ms linear;}" +
+          ".arche-btn.is-down{filter:brightness(0.88);}";
+        document.head.appendChild(st);
       }
-      b.addEventListener("click", () => { this.clicked = true; });
-      this.b = b;
+      // ONE REAL <button> PER `bid`. This used to be a hardcoded singleton (getElementById("ui-button") and a
+      // single `clicked` flag), so a driver with two Button rows saw them both drive the same element and
+      // drain the same flag — the second button silently did not exist.
+      this.btns = new Map();
     },
     seams(rt) {
       const self = this;
+
+      const get = (bid) => {
+        let e = self.btns.get(bid);
+        if (e) return e;
+        const b = document.createElement("button");
+        b.id = "ui-button-" + bid;
+        b.type = "button";
+        b.className = "arche-btn";
+        // Only LAYOUT is inline (the driver owns the rect). APPEARANCE lives in the injected stylesheet below,
+        // keyed off `.arche-btn` — inline styles beat author CSS, so baking the look in here would make the
+        // button unskinnable by the page embedding it.
+        b.style.cssText = "position:absolute;box-sizing:border-box;";
+        // Appended to the app root, NOT into #ui-panel. The old host reparented into the panel div (which is
+        // overflow:hidden) and positioned relative to it, so a button anchored anywhere else on the viewport —
+        // an on-screen movement pad, say — was clipped out of existence. The driver's rect is already in the
+        // same screen space the panel's own rect came from, so absolute placement lands identically.
+        (rt.root || document.body).appendChild(b);
+        e = { el: b, clicked: false, held: false };
+        // `pointer*` covers mouse AND touch in one path, and setPointerCapture keeps the press ours even if the
+        // finger slides off the pad — without it, `pointerup` would fire on some other element and the pad
+        // would stay stuck down, walking the player forever.
+        b.addEventListener("pointerdown", (ev) => {
+          ev.preventDefault();
+          e.clicked = true;
+          e.held = true;
+          b.classList.add("is-down"); // the pressed look — see the stylesheet
+          if (b.setPointerCapture) { try { b.setPointerCapture(ev.pointerId); } catch (_) {} }
+        });
+        const up = () => { e.held = false; b.classList.remove("is-down"); };
+        b.addEventListener("pointerup", up);
+        b.addEventListener("pointercancel", up);
+        self.btns.set(bid, e);
+        return e;
+      };
+
       return {
-        button_be_label(ptr, n, x, y, w, h) {
-          const f = document.getElementById("ui-panel");
-          if (f && self.b.parentNode !== f) f.appendChild(self.b);
+        button_be_label(bid, ptr, n, x, y, w, h) {
+          const e = get(bid);
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
-          if (self.b.textContent !== t) self.b.textContent = t;
+          if (e.el.textContent !== t) e.el.textContent = t;
+          // A ZERO-SIZED button is the driver saying "not now" (e.g. touch controls on a desktop). Hide it
+          // outright, so it cannot swallow clicks meant for the world behind it.
+          if (w <= 0 || h <= 0) { e.el.style.display = "none"; return; }
+          e.el.style.display = "";
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
-          self.b.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
-          self.b.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
-          self.b.style.width = (w * s) + "px";
-          self.b.style.height = (h * s) + "px";
+          e.el.style.left = (x * s) + "px";
+          e.el.style.top = (y * s) + "px";
+          e.el.style.width = (w * s) + "px";
+          e.el.style.height = (h * s) + "px";
         },
-        button_be_poll() { const f = self.clicked; self.clicked = false; return f ? 1 : 0; },
+        // `clicked` DRAINS (it is an edge, consumed once); `held` does not (it is a level, sampled).
+        button_be_clicked(bid) { const e = get(bid); const c = e.clicked; e.clicked = false; return c ? 1 : 0; },
+        button_be_held(bid) { return get(bid).held ? 1 : 0; },
       };
     },
   });
