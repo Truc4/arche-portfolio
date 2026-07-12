@@ -5,6 +5,16 @@ MAXW         :: 4096;
 W            :: 1920;
 SPEED        :: 9.0;
 SCROLL_SPEED :: 1.0;
+// CAMERA. Scroll/pan stays the PRIMARY control — the camera never locks onto the player. The two directions
+// of push COEXIST, and both are wanted:
+//   pan  -> player : `clamp_player` keeps the body inside the viewport, so scrolling SHOVES the player along.
+//   walk -> camera : `cam_push` drags the camera when you WALK into a dead-zone margin at the screen edge.
+// `cam_push` only fires while the arrow keys are actually driving, so it never fights a scroll: let go and the
+// camera is yours again. Vertically the horizon stays put (EYE_Y0) so jumping does not shove the view around.
+CAM_MARGIN  :: 500.0; // px from each screen edge; inside this band the camera is still
+CAM_PUSH    :: 0.2; // how fast the camera catches up when the player leaves the dead zone
+CAM_LERP    :: 0.12; // how fast it glides when re-centring on a focused panel
+EYE_Y0      :: 720.0; // the world's resting eye height (matches the Camera seed)
 EYE0         :: 2100.0;
 PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
@@ -916,6 +926,61 @@ pan :: system eff {
   };
 }
 
+// The player PUSHES the camera — the counterpart to `clamp_player` (which is how PANNING pushes the PLAYER).
+// Walking into the CAM_MARGIN band at either screen edge drags the camera along; inside the band it does not
+// move at all. Gated on the arrow keys actually being held (`axis_x`), so it only ever acts while you are
+// walking — a scroll is never fought or undone by it. `axis_x` is held state, not a drained queue, so reading
+// it here as well as in `walk` is free.
+//
+// The catch-up is a lerp, not a snap: if you have scrolled the camera far from the player, walking pulls it
+// smoothly back instead of teleporting. The cost is a small steady-state lag (at CAM_PUSH=0.2 and SPEED=9 the
+// player rides ~45px past the margin while walking), invisible against a 500px band.
+cam_push :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    gfx.axis_x(handle)(dx:);
+    map (query { fown }) eff {
+      map (query { ppx }) eff {
+        map (query { eye, zoom })(eye) eff {
+          sx := (ppx - eye.x) * zoom + float(vw) * 0.5; // the player, in screen px
+          lo := CAM_MARGIN;
+          hi := float(vw) - CAM_MARGIN;
+          past := select(sx < lo, sx - lo, select(sx > hi, sx - hi, 0.0)); // signed overshoot, 0 in the band
+          // Push ONLY when you are walking INTO the edge you are already past — `past` and `dx` must agree in
+          // sign. Physics can carry you out of the band on its own (momentum, a shove from a box, the pan
+          // clamp dragging you), and then ANY held key kept hauling the camera the same way: press the
+          // OPPOSITE direction and the view still lurched outward before reversing. That is the jerk. Now
+          // walking back off the edge moves the camera exactly 0 — you just walk back into the band yourself.
+          toward := select(past * float(dx) > 0.0, 1.0, 0.0);
+          world := select(fown == FOCUS_WORLD, 1.0, 0.0);
+          eye.x = eye.x + (past / zoom) * CAM_PUSH * toward * world;
+        };
+      };
+    };
+  };
+}
+
+// FOCUS THE CAMERA. Give the playground focus and the camera glides until the whole panel is perfectly
+// centred; hand focus back to the world and the horizon settles back to EYE_Y0 (x is left alone — that
+// belongs to scroll and to `cam_push`). The panel's world rect is its anchor (PANEL_WX, PANEL_WY) plus its
+// size, which `layout` writes in screen px — at zoom 1 those are world units, so divide by zoom in general.
+cam_center :: system eff {
+  map (query { title, size }) eff {
+    map (query { fown }) eff {
+      map (query { eye, zoom })(eye) eff {
+        iz := 1.0 / zoom;
+        cx := PANEL_WX + float(size.w) * 0.5 * iz;
+        cy := PANEL_WY + float(size.h) * 0.5 * iz;
+        edit := select(fown == FOCUS_EDIT, 1.0, 0.0);
+        tx := select(edit > 0.5, cx, eye.x);  // world: x is scroll's + cam_push's business, not ours
+        ty := select(edit > 0.5, cy, EYE_Y0); // world: settle back to the horizon
+        eye.x = eye.x + (tx - eye.x) * CAM_LERP;
+        eye.y = eye.y + (ty - eye.y) * CAM_LERP;
+      };
+    };
+  };
+}
+
 // Keep the player on screen. It now clamps the BODY (position + velocity), not `ppx` — `ppx` is a view of the
 // body, so writing it would just be overwritten by `sync_player_ppx`. Velocity into the edge is zeroed too, or
 // the solver would keep integrating the player into a wall it is being held out of.
@@ -1503,10 +1568,16 @@ phys_sub :: func() -> Schedule {
             // VELOCITY, then the solver does the rest (the player is a fully dynamic tumbling body now —
             // gravity, contacts, friction, shoves, tumbling).
             input_read,
-            // `pan` moves the camera and `layout` projects the playground's rect from it, so both must run
-            // BEFORE `focus_update` hit-tests the pointer against that rect — otherwise the click would be
-            // tested against last frame's panel position. (This also un-stales the same rect for button.poll.)
+            // ALL camera motion happens here, up top, so `layout` projects the playground's rect from the
+            // FINAL eye — otherwise the DOM panel would lag a frame behind the world it is anchored in.
+            //   `pan`        — scroll wheel; the primary control.
+            //   `cam_push`   — walking into the screen-edge margin drags the camera (only while a key is held).
+            //   `cam_center` — the focused panel glides to dead centre.
+            // They read LAST frame's player position and focus, which is imperceptible for a camera.
             pan,
+            cam_push,
+            cam_center,
+            // `layout` must also precede `focus_update`, which hit-tests the pointer against the panel's rect.
             layout,
             // Decide who owns the keyboard, THEN gate everything that reads it. Nothing downstream guesses.
             focus_update,
