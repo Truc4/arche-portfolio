@@ -11,7 +11,12 @@ SCROLL_SPEED :: 1.0;
 //   walk -> camera : `cam_push` drags the camera when you WALK into a dead-zone margin at the screen edge.
 // `cam_push` only fires while the arrow keys are actually driving, so it never fights a scroll: let go and the
 // camera is yours again. Vertically the horizon stays put (EYE_Y0) so jumping does not shove the view around.
-CAM_MARGIN  :: 500.0; // px from each screen edge; inside this band the camera is still
+// The dead zone, as a FRACTION of the viewport width — not pixels. A fixed 500px margin was wider than a
+// phone's entire canvas (the backing store is only ~500 render px across), so `lo` and `hi` INVERTED: `lo`
+// landed past `hi`, the `sx < lo` test was true almost everywhere, and it always reported "past the left
+// edge". The right-hand branch was never reached, so walking right never pushed the camera. A fraction
+// cannot invert: lo = 0.3*vw is always left of hi = 0.7*vw, at any width.
+CAM_MARGIN  :: 0.3; // fraction of the viewport width, from each edge; inside this band the camera is still
 CAM_PUSH    :: 0.2; // how fast the camera catches up when the player leaves the dead zone
 CAM_LERP    :: 0.12; // how fast it glides when re-centring on a focused panel
 EYE_Y0      :: 720.0; // the world's resting eye height (matches the Camera seed)
@@ -131,6 +136,8 @@ shh    :: int;
 gkey   :: int; // the frame's key, drained ONCE (see input_read)
 fown   :: int; // FOCUS_WORLD | FOCUS_EDIT — who owns the keyboard
 fwas   :: int; // previous mouse_down, for rising-edge (click) detection
+tax    :: int; // virtual walk axis from the on-screen pads: -1 / 0 / +1 (HELD, like gfx.axis_x)
+tjump  :: int; // virtual jump edge from the on-screen JUMP pad (one frame, like a key press)
 kw     :: int;
 kh     :: int;
 kcol   :: int;
@@ -165,6 +172,9 @@ Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, 
 // focus" is a one-row pool rather than a component you attach and detach. It is the single authority: the
 // world and the editor both read it, and neither ever guesses.
 Focus       :: arche { fown, fwas }
+// VIRTUAL INPUT — the on-screen pads, folded into the same shapes the keyboard produces (a held axis and a
+// one-frame edge) so that `walk`/`jump`/`cam_push` do not each have to know that touch controls exist.
+Touch       :: arche { tax, tjump }
 Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
@@ -182,6 +192,7 @@ Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol
 // ../arche/tests/extras/query_singleton_pool_broadcast.arche
 [2]Focus(1); // extent 2 (not 1), plain non-datasheet columns — dodges the singleton-pool query-broadcast
 // bug, exactly as [2]Player(1) does (../arche/tests/extras/query_singleton_pool_broadcast.arche)
+[2]Touch(1); // same extent-2 workaround
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
@@ -195,6 +206,20 @@ PANE_H   :: 360;
 BTN_W    :: 200;
 BTN_H    :: 76;
 
+// The four buttons, by id. A pool row has no identity of its own, so `bid` is how the DOM backend keys its
+// per-button <button> element AND how the driver tells one button's `clicked` from another's.
+BTN_RUN   :: 0;
+BTN_LEFT  :: 1;
+BTN_RIGHT :: 2;
+BTN_JUMP  :: 3;
+// On-screen touch controls (mobile only — see `gfx.coarse_pointer`). Sized in VMIN percent, like the old
+// site's `.touchButton { width: 18vmin }` — a fixed pixel size is meaningless here, because the canvas backing
+// store on a portrait phone is only ~500 render px wide, so a "190px" pad ate 40% of the screen.
+PAD_VMIN  :: 18; // pad edge, % of min(vw, vh)
+PAD_GAPV  :: 2; // gap between LEFT and RIGHT, % of vmin
+PAD_BOTV  :: 5; // gap from the bottom, % of vh (the old site's `bottom: 5vh`)
+PAD_SIDEV :: 5; // gap from the sides, % of vw (the old site's `left: 5%`)
+
 // Playground palette (0xRRGGBB) — the driver owns the theme; backends render these (no hardcoded colours).
 ED_BG  :: 0x0e121b;
 ED_FG  :: 0xcdd6f4;
@@ -205,11 +230,13 @@ Panel  :: arche { screen, size, title :: [16]char, len, view }
 Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
 Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche {
+  bid,
   screen,
   size,
   label :: [8]char,
   len,
   clicked,
+  held,
   wasdown,
   mouse,
   mouse_down,
@@ -218,7 +245,7 @@ Button :: arche {
 [1]Panel ?abort;
 [1]Editor ?abort;
 [1]Output ?abort;
-[1]Button ?abort;
+[4]Button ?abort; // RUN + the three on-screen touch pads (LEFT / RIGHT / JUMP)
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -299,6 +326,8 @@ seed :: system {
   // it in textedit_be_open, which is why arrows did nothing until you clicked the canvas.)
   Focus.fown = { FOCUS_WORLD };
   Focus.fwas = { 0 };
+  Touch.tax   = { 0 };
+  Touch.tjump = { 0 };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
@@ -813,6 +842,29 @@ input_read :: system eff {
   };
 }
 
+// Fold the on-screen pads into a virtual axis + jump edge. It reads the Buttons as `button.poll` left them
+// LAST frame (poll sits late in the schedule, after the draw) — one frame of lag on a hold-to-move pad is
+// ~16ms and invisible, and reading them here avoids hoisting `ui_input`/`button.poll` above the physics.
+//
+// LEFT/RIGHT use `held` (walk for as long as the pad is down); JUMP uses `clicked` (an edge, so holding it
+// cannot pogo). Both pads down cancel out, exactly like pressing both arrow keys.
+vinput_clear :: map (query { tax, tjump })(tax, tjump) {
+  tax = 0;
+  tjump = 0;
+}
+
+vinput :: system eff {
+  map (query { bid, clicked, held }) eff {
+    map (query { tax, tjump })(tax, tjump) eff {
+      // LEFT/RIGHT use `held` — walk for as long as the pad is down. (An edge would step the player once per
+      // tap.) JUMP uses `clicked`, an edge, so resting a thumb on it cannot pogo.
+      // Both pads down cancel to zero, exactly like pressing both arrow keys.
+      tax = tax + select(bid == BTN_RIGHT && held == 1, 1, 0) - select(bid == BTN_LEFT && held == 1, 1, 0);
+      tjump = select(bid == BTN_JUMP && clicked == 1, 1, tjump);
+    };
+  };
+}
+
 // FOCUS — decide who owns the keyboard this frame. The two backends reach the same answer by different
 // routes, and the pool is what makes them agree.
 //
@@ -835,6 +887,7 @@ focus_update :: system eff {
     gfx.mouse_y(handle)(my:);
     gfx.mouse_down(handle)(md:);
     gfx.text_focus(handle)(tf:);
+    map (query { tax, tjump }) eff {
     map (query { title, screen, size }) eff {
       map (query { fown, fwas })(fown, fwas) eff {
         // rising edge of a press on the CANVAS — the button device's idiom (ui/button/window/backend.arche)
@@ -843,9 +896,15 @@ focus_update :: system eff {
         iny := select(my >= screen.y && my < screen.y + size.h, 1, 0);
         inside := select(inx == 1 && iny == 1, FOCUS_EDIT, FOCUS_WORLD);
         adopt := select(tf == 1, FOCUS_EDIT, fown); // no click: believe the DOM
-        fown = select(press == 1, inside, adopt);   // a click: believe ourselves
+        want := select(press == 1, inside, adopt);  // a click: believe ourselves
+        // Touching a MOVEMENT PAD means "I want the world", full stop. The pads are DOM elements, so a press
+        // on one never reaches the canvas and never produces a click edge — without this, tapping the editor
+        // and then reaching for a pad would leave focus on the <textarea> and the player would not budge.
+        pad := select(tax != 0, 1, tjump);
+        fown = select(pad == 1, FOCUS_WORLD, want);
         fwas = md;
       };
+    };
     };
     // Hand the keyboard back to the world when the user clicks out of the editor (browser: blur the
     // <textarea>). Reading the pool again after the write above keeps this a plain, ordered consequence.
@@ -867,15 +926,19 @@ focus_update :: system eff {
 // or the top of a box you are standing on.
 jump :: system eff {
   map (query { gkey }) eff {
+    map (query { tjump }) eff {
     map (query { fown }) eff {
       map (query { ppx, lvel, sup })(lvel) eff {
         grounded := select(sup.y > 0.3, 1.0, 0.0);
         mine := select(fown == FOCUS_WORLD, 1.0, 0.0); // not ours to act on while the editor has the keyboard
-        pressed := select(gkey == KEY_UP, 1.0, 0.0) * mine;
+        // the up arrow OR the on-screen JUMP pad — both are one-frame edges, so neither can pogo when held
+        key_or_pad := select(gkey == KEY_UP, 1, tjump);
+        pressed := select(key_or_pad == 1, 1.0, 0.0) * mine;
         go := grounded * pressed;
         up := 0.0 - JUMP;
         lvel.y = select(go > 0.5, up, lvel.y);
       };
+    };
     };
   };
 }
@@ -883,6 +946,7 @@ jump :: system eff {
 walk :: system eff {
   map (query { handle }) eff {
     gfx.axis_x(handle)(dx:);
+    map (query { tax }) eff {
     map (query { fown }) eff {
     // `ppx` is in the query ONLY to scope this to the Player archetype — a bare `query { lvel }` would match
     // every rigid body (Box, Ball, Solid) and drive the whole world with the arrow keys.
@@ -895,17 +959,20 @@ walk :: system eff {
     // the bound scales with how hard you push, so ANY friction plus a constant push clings.) Stop pushing and
     // the normal impulse collapses to nothing, so there is no friction to hold you and you simply slide down.
       map (query { ppx, lvel, sup })(lvel) eff {
+        // The on-screen pad stands in for the keyboard when no key is held, so everything below is written
+        // once against ONE axis rather than special-cased for touch.
+        adx := select(dx != 0, dx, tax);
         // Only walk if the WORLD owns the keyboard. If the editor has it, we fall through to `coast` — the
         // player damps to a stop rather than freezing mid-stride, and keeps its physics (it can still be
         // shoved by a box, still falls). `axis_x` is HELD state, not a drained key, so this gate is separate
         // from the one in `jump`; on the web it is belt-and-braces, since gfx already reports 0 while a text
         // field owns the keyboard, but natively it is the only thing stopping the player.
         mine := select(fown == FOCUS_WORLD, 1.0, 0.0);
-        held := select(dx != 0, 1.0, 0.0) * mine;
-        into := float(dx) * sup.x; // > 0 ⇒ the wall blocking us is the way we are pressing
+        held := select(adx != 0, 1.0, 0.0) * mine;
+        into := float(adx) * sup.x; // > 0 ⇒ the wall blocking us is the way we are pressing
         blocked := select(into > 0.3, 1.0, 0.0);
         drive := held * (1.0 - blocked);
-        tgt := float(dx) * SPEED;
+        tgt := float(adx) * SPEED;
         // No key: damp to a stop, but only while GROUNDED. The player has almost no friction (see PFRIC), so
         // this is what stops it — and gating on `sup.y` means we never damp in mid-air, which would flatten
         // the arc of a jump and kill the slide down a wall.
@@ -913,6 +980,7 @@ walk :: system eff {
         coast := lvel.x * select(grounded > 0.5, WALK_DAMP, 1.0);
         lvel.x = select(drive > 0.5, tgt, coast);
       };
+    };
     };
   };
 }
@@ -939,23 +1007,28 @@ cam_push :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     gfx.axis_x(handle)(dx:);
+    map (query { tax }) eff {
     map (query { fown }) eff {
       map (query { ppx }) eff {
         map (query { eye, zoom })(eye) eff {
+          // Same keyboard-or-pad axis as `walk`. `cam_push` reads gfx.axis_x on its own, so without this the
+          // camera would sit still while the pads walked the player straight off the edge of the screen.
+          adx := select(dx != 0, dx, tax);
           sx := (ppx - eye.x) * zoom + float(vw) * 0.5; // the player, in screen px
-          lo := CAM_MARGIN;
-          hi := float(vw) - CAM_MARGIN;
+          lo := float(vw) * CAM_MARGIN;
+          hi := float(vw) - lo;
           past := select(sx < lo, sx - lo, select(sx > hi, sx - hi, 0.0)); // signed overshoot, 0 in the band
           // Push ONLY when you are walking INTO the edge you are already past — `past` and `dx` must agree in
           // sign. Physics can carry you out of the band on its own (momentum, a shove from a box, the pan
           // clamp dragging you), and then ANY held key kept hauling the camera the same way: press the
           // OPPOSITE direction and the view still lurched outward before reversing. That is the jerk. Now
           // walking back off the edge moves the camera exactly 0 — you just walk back into the band yourself.
-          toward := select(past * float(dx) > 0.0, 1.0, 0.0);
+          toward := select(past * float(adx) > 0.0, 1.0, 0.0);
           world := select(fown == FOCUS_WORLD, 1.0, 0.0);
           eye.x = eye.x + (past / zoom) * CAM_PUSH * toward * world;
         };
       };
+    };
     };
   };
 }
@@ -1403,11 +1476,61 @@ seed_playground :: system eff {
   )(_:, _ok:);
   insert(
     Button {
+      bid        : BTN_RUN,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "RUN",
       len        : 3,
       clicked    : 0,
+      held       : 0,
+      wasdown    : 0,
+      mouse      : (0, 0),
+      mouse_down : 0,
+      view       : (0, 0),
+    },
+  )(_:, _ok:);
+  // The on-screen touch controls. A phone has no keyboard, so without these the world is unplayable. `layout`
+  // gives them ZERO SIZE on a fine-pointer device, which hides them in both backends — so they cost a desktop
+  // nothing. LEFT/RIGHT are HELD (walk while pressed); JUMP is an edge.
+  insert(
+    Button {
+      bid        : BTN_LEFT,
+      screen     : (0, 0),
+      size       : (0, 0),
+      label      : "-",
+      len        : 0, // no text: the arrow is a CSS glyph (see #ui-button-1::before in www/index.html)
+      clicked    : 0,
+      held       : 0,
+      wasdown    : 0,
+      mouse      : (0, 0),
+      mouse_down : 0,
+      view       : (0, 0),
+    },
+  )(_:, _ok:);
+  insert(
+    Button {
+      bid        : BTN_RIGHT,
+      screen     : (0, 0),
+      size       : (0, 0),
+      label      : "-",
+      len        : 0,
+      clicked    : 0,
+      held       : 0,
+      wasdown    : 0,
+      mouse      : (0, 0),
+      mouse_down : 0,
+      view       : (0, 0),
+    },
+  )(_:, _ok:);
+  insert(
+    Button {
+      bid        : BTN_JUMP,
+      screen     : (0, 0),
+      size       : (0, 0),
+      label      : "-",
+      len        : 0,
+      clicked    : 0,
+      held       : 0,
       wasdown    : 0,
       mouse      : (0, 0),
       mouse_down : 0,
@@ -1428,6 +1551,10 @@ measure :: system eff {
 layout :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
+    // Is this a touch device? Decides BOTH whether the on-screen pads exist and whether the playground uses
+    // its narrow, stacked shape. `vw`/`vh` are RENDER px (the canvas backing store) — the same space
+    // `screen`/`size` live in — so every rect below is derived from the viewport, not hardcoded to a device.
+    gfx.coarse_pointer(handle)(coarse:);
     map (query { eye, zoom }) eff {
       s := camera.to_screen(
         vec.mk(PANEL_WX, PANEL_WY),
@@ -1437,35 +1564,68 @@ layout :: system eff {
       );
       px   := i32(s.x);
       py   := i32(s.y);
+      // PANEL WIDTH. `PANEL_W` (1100) is wider than a portrait phone's entire canvas — the backing store is
+      // renderH x aspect, which is ~500 render px on a phone — so the playground hung off both sides of the
+      // screen. On a touch device it becomes the viewport minus a margin instead.
+      pw   := select(coarse == 1, vw - 2 * ui.PAD, PANEL_W);
       cx   := ui.content_x(px);
-      cw   := ui.content_w(PANEL_W);
+      cw   := ui.content_w(pw);
       cy0  := ui.content_top(py);
-      half := (cw - ui.GAP) / 2; // editor | output share a row, split the content width
-      cyb  := ui.next(cy0, PANE_H); // button row, below the side-by-side panes
+      // PANE SHAPE. Desktop: editor | output share a row (half the content width each). Touch: there is no
+      // room for two columns, so they STACK — full width, one above the other.
+      half := (cw - ui.GAP) / 2;
+      ew   := select(coarse == 1, cw, half);                    // editor width
+      eh   := select(coarse == 1, PANE_H / 2, PANE_H);          // pane height (two stacked must still fit)
+      ox   := select(coarse == 1, cx, cx + half + ui.GAP);      // output x: below on touch, beside on desktop
+      oy   := select(coarse == 1, ui.next(cy0, eh), cy0);       // output y
+      // the RUN row sits under whichever shape we ended up with
+      cyb  := select(coarse == 1, ui.next(ui.next(cy0, eh), eh), ui.next(cy0, PANE_H));
       ph   := cyb + BTN_H + ui.PAD - py;
       map (query { title, screen, size })(screen, size) eff {
         screen.x = px;
         screen.y = py;
-        size.w   = PANEL_W;
+        size.w   = pw;
         size.h   = ph;
       };
       map (query { source, screen, size })(screen, size) eff {
         screen.x = cx;
         screen.y = cy0;
-        size.w   = half;
-        size.h   = PANE_H;
+        size.w   = ew;
+        size.h   = eh;
       };
       map (query { output, screen, size })(screen, size) eff {
-        screen.x = cx + half + ui.GAP;
-        screen.y = cy0;
-        size.w   = half;
-        size.h   = PANE_H;
+        screen.x = ox;
+        screen.y = oy;
+        size.w   = ew;
+        size.h   = eh;
       };
-      map (query { label, screen, size })(screen, size) eff {
-        screen.x = cx;
-        screen.y = cyb;
-        size.w   = BTN_W;
-        size.h   = BTN_H;
+      // THE BUTTONS. This query matches ALL FOUR rows, so every rect must be selected by `bid` — otherwise
+      // each button would be stamped with RUN's rect and they would all pile up on top of each other.
+      //
+      // RUN is anchored to the PANEL (it scrolls with the world). The three pads are anchored to the
+      // VIEWPORT — a first for this driver, everything else goes through `camera.to_screen` — because a
+      // control you hold has to stay under your thumb while the world moves beneath it.
+      //
+      // On a fine pointer the pads get ZERO SIZE. That is the whole desktop story: the DOM host hides a
+      // zero-sized button and the framebuffer renderer draws no pixels for it, so they cost nothing and
+      // cannot swallow a click meant for the world behind them.
+      map (query { bid, label, screen, size })(screen, size) eff {
+        vmin := select(vw < vh, vw, vh);
+        pad  := vmin * PAD_VMIN / 100;                          // 18vmin, as on the old site
+        gap  := vmin * PAD_GAPV / 100;
+        sidex := vw * PAD_SIDEV / 100;
+        pady := vh - pad - (vh * PAD_BOTV / 100);               // all three sit on the bottom row
+        lx := sidex;                                            // LEFT | RIGHT pair, bottom-left...
+        rx := sidex + pad + gap;
+        jx := vw - pad - sidex;                                 // ...JUMP bottom-right, under the other thumb
+        bx := select(bid == BTN_LEFT, lx, select(bid == BTN_RIGHT, rx, select(bid == BTN_JUMP, jx, cx)));
+        by := select(bid == BTN_RUN, cyb, pady);
+        pw2 := select(bid == BTN_RUN, BTN_W, pad * coarse);     // coarse == 0 ⇒ zero-sized ⇒ hidden
+        ph2 := select(bid == BTN_RUN, BTN_H, pad * coarse);
+        screen.x = bx;
+        screen.y = by;
+        size.w   = pw2;
+        size.h   = ph2;
       };
     };
   };
@@ -1499,9 +1659,11 @@ ui_input :: system eff {
   };
 }
 
+// Gated on `bid`. `query { clicked }` matches EVERY Button row, so without the id test, tapping the LEFT pad
+// would submit the editor and run the compiler.
 run_button :: system eff {
-  map (query { clicked }) eff {
-    if (clicked == 1) {
+  map (query { bid, clicked }) eff {
+    if (bid == BTN_RUN && clicked == 1) {
       map (query { submit })(submit) eff {
         submit = 1;
       };
@@ -1568,6 +1730,10 @@ phys_sub :: func() -> Schedule {
             // VELOCITY, then the solver does the rest (the player is a fully dynamic tumbling body now —
             // gravity, contacts, friction, shoves, tumbling).
             input_read,
+            // fold the on-screen touch pads into a virtual axis + jump edge, in the same shapes the keyboard
+            // produces — so `walk`/`jump`/`cam_push` below never need to know touch controls exist
+            vinput_clear,
+            vinput,
             // ALL camera motion happens here, up top, so `layout` projects the playground's rect from the
             // FINAL eye — otherwise the DOM panel would lag a frame behind the world it is anchored in.
             //   `pan`        — scroll wheel; the primary control.

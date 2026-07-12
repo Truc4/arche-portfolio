@@ -26,6 +26,46 @@
        the wheel/touch fall through to the gfx <canvas> underneath. (Web-only: native has no DOM text layer.)
        The playground's layout lives in the arche program (`layout` in portfolio.arche), not here. */
     #text-layer span { pointer-events: none !important; }
+
+    /* The on-screen touch pads (ids 1/2/3 = LEFT/RIGHT/JUMP; 0 is RUN and keeps the default skin). Lifted from
+       the old site's `.touchButton`: a raised physical key — light face, darker rim, and a hard offset shadow
+       standing it off the page. The press is the whole point: `.is-down` (set by the button host on
+       pointerdown) drops the key ONTO its own shadow — translateY by exactly the shadow depth, shadow removed,
+       face darkened — over 50ms linear. That is what makes it feel like a button instead of a rectangle.
+       The arche `layout` owns position/size (in vmin, so they scale with the device); this is purely the skin. */
+    #ui-button-1, #ui-button-2, #ui-button-3 {
+      background: #c8ccd8;
+      border: 0.7vmin solid #949aad;
+      border-radius: 12%;
+      box-shadow: 0 1.5vmin 0 0 #949aad;
+      opacity: 0.9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Rounded outer edges on the left/right pair, as on the old site — reads as a D-pad rather than two tiles. */
+    #ui-button-1 { border-top-left-radius: 50%; border-bottom-left-radius: 50%; }
+    #ui-button-2 { border-top-right-radius: 50%; border-bottom-right-radius: 50%; }
+
+    /* No text on the pads — the glyphs are pure CSS triangles (a border trick: a zero-size box whose three
+       other borders are transparent). Text would need a font, would sit on a baseline, and would scale badly. */
+    #ui-button-1::before, #ui-button-2::before, #ui-button-3::before {
+      content: "";
+      display: block;
+      width: 0;
+      height: 0;
+      border: 2.2vmin solid transparent;
+    }
+    #ui-button-1::before { border-right-color: #4a5068; margin-right: 2.2vmin; } /* ◀ */
+    #ui-button-2::before { border-left-color: #4a5068;  margin-left: 2.2vmin; }  /* ▶ */
+    #ui-button-3::before { border-bottom-color: #4a5068; margin-bottom: 2.2vmin; } /* ▲ jump */
+
+    #ui-button-1.is-down, #ui-button-2.is-down, #ui-button-3.is-down {
+      background: #9aa0b2;
+      box-shadow: none;
+      transform: translateY(1.5vmin); /* exactly the shadow depth — the key sinks onto the page */
+      filter: none;
+    }
   </style>
 </head>
 <body>
