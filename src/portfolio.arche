@@ -20,6 +20,12 @@ CAM_MARGIN  :: 0.3; // fraction of the viewport width, from each edge; inside th
 CAM_PUSH    :: 0.2; // how fast the camera catches up when the player leaves the dead zone
 CAM_LERP    :: 0.12; // how fast it glides when re-centring on a focused panel
 EYE_Y0      :: 720.0; // the world's resting eye height (matches the Camera seed)
+// On a phone the eye sits LOWER, which raises the ground up the screen. The touch pads live along the bottom
+// edge, and at EYE_Y0 the ground line lands at screen y ~960 while the pads start at ~936 — so they sat right
+// on top of the player. At 840 the ground lands at ~840, leaving the player clear of the pads without shoving
+// the horizon up into the middle of the screen. (The canvas height is always renderH = 1080, so this is a
+// stable number, not a guess about a particular device.)
+EYE_Y0_M    :: 840.0;
 EYE0         :: 2100.0;
 PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
@@ -275,9 +281,13 @@ seed :: system {
   // above the ramp's high end down to just under the ground line (the ground rect covers the overlap).
   //             frame         ground
   Back.pos.x = { 0.0 - 960.0,   2100.0 };
-  Back.pos.y = { 895.0,         1200.0 };
+  //                            the ground's top face must stay at ARENA_FLOOR (1140) — that is the surface
+  //                            bodies rest on — so deepening the band means moving its CENTRE down by half the
+  //                            extra height. 1140 + 600/2 = 1440. At 120 tall it ran out mid-screen and left
+  //                            bare canvas below it, which is very visible once the camera sits lower on mobile.
+  Back.pos.y = { 895.0,         1440.0 };
   Back.kw    = { 1840,          12000  };
-  Back.kh    = { 510,           120    };
+  Back.kh    = { 510,           600    };
   Back.kcol  = { SECT_BG,       FLOOR  };
   Back.klay  = { 0,             1      };  // 0 = behind the container, 1 = in front of it
   Back.ksx   = { 0, 0 };
@@ -1038,17 +1048,21 @@ cam_push :: system eff {
 // belongs to scroll and to `cam_push`). The panel's world rect is its anchor (PANEL_WX, PANEL_WY) plus its
 // size, which `layout` writes in screen px — at zoom 1 those are world units, so divide by zoom in general.
 cam_center :: system eff {
-  map (query { title, size }) eff {
-    map (query { fown }) eff {
-      map (query { eye, zoom })(eye) eff {
-        iz := 1.0 / zoom;
-        cx := PANEL_WX + float(size.w) * 0.5 * iz;
-        cy := PANEL_WY + float(size.h) * 0.5 * iz;
-        edit := select(fown == FOCUS_EDIT, 1.0, 0.0);
-        tx := select(edit > 0.5, cx, eye.x);  // world: x is scroll's + cam_push's business, not ours
-        ty := select(edit > 0.5, cy, EYE_Y0); // world: settle back to the horizon
-        eye.x = eye.x + (tx - eye.x) * CAM_LERP;
-        eye.y = eye.y + (ty - eye.y) * CAM_LERP;
+  map (query { handle }) eff {
+    gfx.coarse_pointer(handle)(coarse:);
+    map (query { title, size }) eff {
+      map (query { fown }) eff {
+        map (query { eye, zoom })(eye) eff {
+          iz := 1.0 / zoom;
+          cx := PANEL_WX + float(size.w) * 0.5 * iz;
+          cy := PANEL_WY + float(size.h) * 0.5 * iz;
+          ey := select(coarse == 1, EYE_Y0_M, EYE_Y0); // on touch, sit lower so the ground clears the pads
+          edit := select(fown == FOCUS_EDIT, 1.0, 0.0);
+          tx := select(edit > 0.5, cx, eye.x); // world: x is scroll's + cam_push's business, not ours
+          ty := select(edit > 0.5, cy, ey);    // world: settle back to the horizon
+          eye.x = eye.x + (tx - eye.x) * CAM_LERP;
+          eye.y = eye.y + (ty - eye.y) * CAM_LERP;
+        };
       };
     };
   };
