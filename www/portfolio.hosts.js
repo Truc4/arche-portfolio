@@ -555,7 +555,10 @@
         const st = document.createElement("style");
         st.id = "arche-btn-css";
         st.textContent =
+          // -webkit-touch-callout:none kills the iOS long-press callout. A button you HOLD is pressed for
+          // seconds at a time, which is exactly the gesture the OS reads as "select / share this element".
           ".arche-btn{cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;" +
+          "-webkit-touch-callout:none;" +
           "-webkit-tap-highlight-color:transparent;border:none;border-radius:0.4em;background:#e4694e;" +
           "color:#160d0a;z-index:6;font:600 1em ui-sans-serif,system-ui,sans-serif;" +
           "transition:transform 50ms linear, box-shadow 50ms linear, background 50ms linear;}" +
@@ -600,6 +603,10 @@
         const up = () => { e.held = false; b.classList.remove("is-down"); };
         b.addEventListener("pointerup", up);
         b.addEventListener("pointercancel", up);
+        // Holding a movement pad IS a long press, so the browser offers its context menu / text-selection
+        // callout right on top of the controls. CSS alone does not stop it (Android fires `contextmenu`
+        // regardless of -webkit-touch-callout), so refuse the event outright.
+        b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); });
         self.btns.set(bid, e);
         return e;
       };
