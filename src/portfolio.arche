@@ -1,26 +1,26 @@
 #import { gfx camera vec os text ui panel textedit textview button compiler rigid }
 
-H    :: 1080;
-MAXW :: 4096;
-W    :: 1920;
-SPEED    :: 9.0;
+H            :: 1080;
+MAXW         :: 4096;
+W            :: 1920;
+SPEED        :: 9.0;
 SCROLL_SPEED :: 1.0;
-EYE0     :: 2100.0;
-PAR_HILL :: 0.5;
-PLAYER_Y :: 1089.0;
-PW :: 102;
+EYE0         :: 2100.0;
+PAR_HILL     :: 0.5;
+PLAYER_Y     :: 1089.0;
+PW           :: 102;
 
 // Physics sandbox — a bin of bodies to the LEFT of the playground (world-x < PANEL_WX = 700).
-ARENA_L     :: 40.0;    // left wall (world-x)
-ARENA_R     :: 640.0;   // right wall (world-x)
-ARENA_TOP   :: 200.0;   // ceiling (world-y)
-ARENA_FLOOR :: 1140.0;  // floor line == FLOOR prop top == player foot line
-GRAV        :: 0.4;     // gravity, px/frame^2 (+y is down)
-GDT         :: 0.025;   // gravity per TGS SUBSTEP = GRAV / rigid.SUBSTEPS(16); applied 16×/frame
-PHALF       :: 51.0;    // player half-extent (a static rigid obstacle, PW=102)
-BREST       :: 0.12;    // box restitution (slight bounce)
-BFRIC       :: 0.45;    // box friction
-BINVI       :: 0.0016;  // box inverse inertia (tuned so boxes visibly tumble)
+ARENA_L     :: 40.0; // left wall (world-x)
+ARENA_R     :: 640.0; // right wall (world-x)
+ARENA_TOP   :: 200.0; // ceiling (world-y)
+ARENA_FLOOR :: 1140.0; // floor line == FLOOR prop top == player foot line
+GRAV        :: 0.4; // gravity, px/frame^2 (+y is down)
+GDT         :: 0.025; // gravity per TGS SUBSTEP = GRAV / rigid.SUBSTEPS(16); applied 16×/frame
+PHALF       :: 51.0; // player half-extent (a static rigid obstacle, PW=102)
+BREST       :: 0.12; // box restitution (slight bounce)
+BFRIC       :: 0.45; // box friction
+BINVI       :: 0.0016; // box inverse inertia (tuned so boxes visibly tumble)
 
 CANVAS :: 0x12131c;
 FLOOR  :: 0x242742;
@@ -65,49 +65,49 @@ cplx   :: float;
 csx    :: int;
 csy    :: int;
 handle :: window;
-tx   :: int;
-ty   :: int;
-tsz  :: int;
-tcol :: int;
-tlen :: int;
-twx  :: float;
-twy  :: float;
-tplx :: float;
-bsx  :: int;
-bsy  :: int;
-bhw  :: int;
-bhh  :: int;
-bcol :: int;
-qsx  :: int;
-qsy  :: int;
-qr   :: int;
-qcol :: int;
-sflag :: int;
+tx     :: int;
+ty     :: int;
+tsz    :: int;
+tcol   :: int;
+tlen   :: int;
+twx    :: float;
+twy    :: float;
+tplx   :: float;
+bsx    :: int;
+bsy    :: int;
+bhw    :: int;
+bhh    :: int;
+bcol   :: int;
+qsx    :: int;
+qsy    :: int;
+qr     :: int;
+qcol   :: int;
+sflag  :: int;
 
-Prop :: arche { pos, rw, rh, rcolor, plx, rx, ry }
-Hill :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
+Prop  :: arche { pos, rw, rh, rcolor, plx, rx, ry }
+Hill  :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
 // Rigid bodies (OBBs with rotation) — the `rigid` device solves them. Box renders as a rotated rect,
 // Ball as a circle (its rotation is invisible), Solid is the static floor/walls, Player is a static
 // obstacle synced to the walked position. All carry the rigid component set so they all collide.
-Box    :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, bsx, bsy, bhw, bhh, bcol }
-Ball   :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, qsx, qsy, qr, qcol }
-Solid  :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sflag }
-Player :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor }
-Window :: arche { handle, bg }
+Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, bsx, bsy, bhw, bhh, bcol }
+Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, qsx, qsy, qr, qcol }
+Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sflag }
+Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor }
+Window      :: arche { handle, bg }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
-Sign :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
+Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
-[12]Prop(11);         // 7 scenery rects + 4 arena-bin walls (marked physics bounds)
+[12]Prop(11); // 7 scenery rects + 4 arena-bin walls (marked physics bounds)
 [6]Hill(3);
 [8]Round(6);
 [8]Box(6);
 [6]Ball(4);
-[4]Solid(4);          // static floor + left/right walls + ceiling (mi = 0); `sflag` makes its shape
-                      // distinct from the RBody storage floor below
-[4]RBody;             // rigid datasheet storage floor (unused; the archetypes carry the real bodies)
-[2]Player(1);         // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
-                      // ../arche/tests/extras/query_singleton_pool_broadcast.arche
+[4]Solid(4); // static floor + left/right walls + ceiling (mi = 0); `sflag` makes its shape
+// distinct from the RBody storage floor below
+[4]RBody; // rigid datasheet storage floor (unused; the archetypes carry the real bodies)
+[2]Player(1); // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
+// ../arche/tests/extras/query_singleton_pool_broadcast.arche
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
@@ -130,7 +130,17 @@ OUT_FG :: 0xa6e3a1;
 Panel  :: arche { screen, size, title :: [16]char, len, view }
 Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
 Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
-Button :: arche { screen, size, label :: [8]char, len, clicked, wasdown, mouse, mouse_down, view }
+Button :: arche {
+  screen,
+  size,
+  label :: [8]char,
+  len,
+  clicked,
+  wasdown,
+  mouse,
+  mouse_down,
+  view,
+}
 [1]Panel ?abort;
 [1]Editor ?abort;
 [1]Output ?abort;
@@ -144,36 +154,70 @@ boot :: system eff {
 seed :: system {
   // 7 scenery rects, then 4 arena-bin walls (left, right, floor, ceiling) at parallax 1.0 marking the
   // clamp rect ARENA_L=40 / ARENA_R=640 / ARENA_TOP=200 / ARENA_FLOOR=1140 — bodies stop exactly here.
-  Prop.pos.x  = { 2100.0,  1560.0, 600.0, 3750.0, 2760.0, 1080.0, 3240.0,   33.0,  647.0, 340.0, 340.0 };
-  Prop.pos.y  = { 1200.0,  915.0,  885.0, 900.0,  945.0,  975.0,  990.0,    670.0, 670.0, 1147.0, 193.0 };
-  Prop.rw     = { 12000,   210,    270,   270,    330,    390,    510,      14,    14,    642,   642   };
-  Prop.rh     = { 120,     450,    510,   480,    390,    330,    300,       946,   946,   14,    14    };
-  Prop.rcolor = { FLOOR,   S1,     S2,    S3,     S4,     S5,     S6,        BIN,   BIN,   BIN,   BIN   };
-  Prop.plx    = { 1.0,     0.625,  0.6875, 0.75,  0.8125, 0.875,  0.9375,   1.0,   1.0,   1.0,   1.0   };
+  Prop.pos.x = {
+    2100.0,
+    1560.0,
+    600.0,
+    3750.0,
+    2760.0,
+    1080.0,
+    3240.0,
+    33.0,
+    647.0,
+    340.0,
+    340.0,
+  };
+  Prop.pos.y = {
+    1200.0,
+    915.0,
+    885.0,
+    900.0,
+    945.0,
+    975.0,
+    990.0,
+    670.0,
+    670.0,
+    1147.0,
+    193.0,
+  };
+  Prop.rw     = { 12000, 210, 270, 270, 330, 390, 510, 14, 14, 642, 642 };
+  Prop.rh     = { 120, 450, 510, 480, 390, 330, 300, 946, 946, 14, 14 };
+  Prop.rcolor = { FLOOR, S1, S2, S3, S4, S5, S6, BIN, BIN, BIN, BIN };
+  Prop.plx    = { 1.0, 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375, 1.0, 1.0, 1.0, 1.0 };
 
-  Hill.hpx = { 900.0, 2400.0, 3900.0 };
-  Hill.hpy = { 1140.0, 1140.0, 1140.0 };
-  Hill.hhw = { 660,   900,    750    };
-  Hill.hht = { 420,   570,    450    };
-  Hill.hcol = { HILL, HILL,   HILL   };
+  Hill.hpx  = { 900.0, 2400.0, 3900.0 };
+  Hill.hpy  = { 1140.0, 1140.0, 1140.0 };
+  Hill.hhw  = { 660, 900, 750 };
+  Hill.hht  = { 420, 570, 450 };
+  Hill.hcol = { HILL, HILL, HILL };
 
-  Round.cpx  = { 1050.0,  1950.0, 3150.0, 1440.0,  2280.0, 3450.0 };
-  Round.cpy  = { 540.0,   465.0,  570.0,  1146.0,  1152.0, 1143.0 };
-  Round.crad = { 78,      96,     72,     48,      39,     51     };
-  Round.ccol = { CLOUD,   CLOUD,  CLOUD,  BUSH,    BUSH,   BUSH   };
-  Round.cplx = { 0.25,    0.25,   0.25,   1.0,     1.0,    1.0    };
+  Round.cpx  = { 1050.0, 1950.0, 3150.0, 1440.0, 2280.0, 3450.0 };
+  Round.cpy  = { 540.0, 465.0, 570.0, 1146.0, 1152.0, 1143.0 };
+  Round.crad = { 78, 96, 72, 48, 39, 51 };
+  Round.ccol = { CLOUD, CLOUD, CLOUD, BUSH, BUSH, BUSH };
+  Round.cplx = { 0.25, 0.25, 0.25, 1.0, 1.0, 1.0 };
 
   Player.ppx    = { 2100.0 };
-  Player.pos.x  = { 2100.0 };  Player.pos.y  = { PLAYER_Y };
-  Player.lvel.x = { 0.0 };     Player.lvel.y = { 0.0 };
-  Player.spin.x = { 0.0 };     Player.spin.y = { 0.0 };
-  Player.rot.x  = { 1.0 };     Player.rot.y  = { 0.0 };
-  Player.ext.x  = { PHALF };   Player.ext.y  = { PHALF };
-  Player.mi.x   = { 0.0 };     Player.mi.y   = { 0.0 };    // static (immovable) obstacle
-  Player.mat.x  = { 0.1 };     Player.mat.y  = { 0.5 };
-  Player.dimp.x = { 0.0 };     Player.dimp.y = { 0.0 };
-  Player.dang.x = { 0.0 };     Player.dang.y = { 0.0 };
-  Player.cor.x  = { 0.0 };     Player.cor.y  = { 0.0 };
+  Player.pos.x  = { 2100.0 };
+  Player.pos.y  = { PLAYER_Y };
+  Player.lvel.x = { 0.0 };
+  Player.lvel.y = { 0.0 };
+  Player.spin.x = { 0.0 };
+  Player.spin.y = { 0.0 };
+  Player.rot.x  = { 1.0 };
+  Player.rot.y  = { 0.0 };
+  Player.ext.x  = { PHALF };
+  Player.ext.y  = { PHALF };
+  Player.mi.x   = { 0.0 };
+  Player.mi.y   = { 0.0 }; // static (immovable) obstacle
+  Player.mat.x  = { 0.1 };
+  Player.mat.y  = { 0.5 };
+  Player.dimp.x = { 0.0 };
+  Player.dimp.y = { 0.0 };
+  Player.dang.x = { 0.0 };
+  Player.dang.y = { 0.0 };
+  Player.cor.x  = { 0.0 };
+  Player.cor.y  = { 0.0 };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
@@ -185,50 +229,73 @@ seed :: system {
 seed_arena :: system {
   // 6 tumbling boxes — varied start angles (rot = unit (cos,sin)) and a little initial spin so they read
   // as rigid bodies the instant they drop. Some are non-square. mi = (invMass, invInertia).
-  Box.pos.x  = { 120.0,  250.0,  380.0,  500.0,  200.0,  440.0  };
-  Box.pos.y  = { 320.0,  260.0,  360.0,  280.0,  520.0,  560.0  };
-  Box.lvel.x = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
-  Box.lvel.y = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
-  Box.spin.x = { 0.02,  -0.03,   0.04,  -0.02,   0.03,  -0.04   };
-  Box.spin.y = { 0.0,    0.0,    0.0,    0.0,    0.0,    0.0    };
-  Box.rot.x  = { 1.0,    0.924,  0.707,  0.383,  0.0,    0.831  };
-  Box.rot.y  = { 0.0,    0.383,  0.707,  0.924,  1.0,    0.556  };
-  Box.ext.x  = { 44.0,   36.0,   52.0,   40.0,   48.0,   34.0   };
-  Box.ext.y  = { 44.0,   36.0,   40.0,   40.0,   30.0,   34.0   };
-  Box.mi.x   = { 1.0,    1.0,    1.0,    1.0,    1.0,    1.0    };
-  Box.mi.y   = { BINVI,  BINVI,  BINVI,  BINVI,  BINVI,  BINVI  };
-  Box.mat.x  = { BREST,  BREST,  BREST,  BREST,  BREST,  BREST  };
-  Box.mat.y  = { BFRIC,  BFRIC,  BFRIC,  BFRIC,  BFRIC,  BFRIC  };
-  Box.dimp.x = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.dimp.y = { 0.0,0.0,0.0,0.0,0.0,0.0 };
-  Box.dang.x = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.dang.y = { 0.0,0.0,0.0,0.0,0.0,0.0 };
-  Box.cor.x  = { 0.0,0.0,0.0,0.0,0.0,0.0 };  Box.cor.y  = { 0.0,0.0,0.0,0.0,0.0,0.0 };
-  Box.bcol   = { BOXA,  BOXB,   BOXC,   BOXA,   BOXB,   BOXC   };
+  Box.pos.x  = { 120.0, 250.0, 380.0, 500.0, 200.0, 440.0 };
+  Box.pos.y  = { 320.0, 260.0, 360.0, 280.0, 520.0, 560.0 };
+  Box.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.spin.x = { 0.02, -0.03, 0.04, -0.02, 0.03, -0.04 };
+  Box.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.rot.x  = { 1.0, 0.924, 0.707, 0.383, 0.0, 0.831 };
+  Box.rot.y  = { 0.0, 0.383, 0.707, 0.924, 1.0, 0.556 };
+  Box.ext.x  = { 44.0, 36.0, 52.0, 40.0, 48.0, 34.0 };
+  Box.ext.y  = { 44.0, 36.0, 40.0, 40.0, 30.0, 34.0 };
+  Box.mi.x   = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Box.mi.y   = { BINVI, BINVI, BINVI, BINVI, BINVI, BINVI };
+  Box.mat.x  = { BREST, BREST, BREST, BREST, BREST, BREST };
+  Box.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC };
+  Box.dimp.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dimp.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dang.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.bcol   = { BOXA, BOXB, BOXC, BOXA, BOXB, BOXC };
 
   // 4 balls — collide as (square) rigid bodies, rendered as circles (ext.x == ext.y == radius).
-  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };  Ball.pos.y  = { 240.0, 300.0, 220.0, 340.0 };
-  Ball.lvel.x = { 0.0,   0.0,   0.0,   0.0   };  Ball.lvel.y = { 0.0,   0.0,   0.0,   0.0   };
-  Ball.spin.x = { 0.0,   0.0,   0.0,   0.0   };  Ball.spin.y = { 0.0,   0.0,   0.0,   0.0   };
-  Ball.rot.x  = { 1.0,   1.0,   1.0,   1.0   };  Ball.rot.y  = { 0.0,   0.0,   0.0,   0.0   };
-  Ball.ext.x  = { 38.0,  30.0,  44.0,  26.0  };  Ball.ext.y  = { 38.0,  30.0,  44.0,  26.0  };
-  Ball.mi.x   = { 1.0,   1.0,   1.0,   1.0   };  Ball.mi.y   = { BINVI, BINVI, BINVI, BINVI };
-  Ball.mat.x  = { BREST, BREST, BREST, BREST };  Ball.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC };
-  Ball.dimp.x = { 0.0,0.0,0.0,0.0 };  Ball.dimp.y = { 0.0,0.0,0.0,0.0 };
-  Ball.dang.x = { 0.0,0.0,0.0,0.0 };  Ball.dang.y = { 0.0,0.0,0.0,0.0 };
-  Ball.cor.x  = { 0.0,0.0,0.0,0.0 };  Ball.cor.y  = { 0.0,0.0,0.0,0.0 };
+  Ball.pos.x  = { 160.0, 340.0, 480.0, 560.0 };
+  Ball.pos.y  = { 240.0, 300.0, 220.0, 340.0 };
+  Ball.lvel.x = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.lvel.y = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.spin.x = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.spin.y = { 1.0, 1.0, 1.0, 1.0 }; // spin.y=1 ⇒ collide as a CIRCLE (radius = ext.x)
+  Ball.rot.x  = { 1.0, 1.0, 1.0, 1.0 };
+  Ball.rot.y  = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.ext.x  = { 38.0, 30.0, 44.0, 26.0 };
+  Ball.ext.y  = { 38.0, 30.0, 44.0, 26.0 };
+  Ball.mi.x   = { 1.0, 1.0, 1.0, 1.0 };
+  Ball.mi.y   = { BINVI, BINVI, BINVI, BINVI };
+  Ball.mat.x  = { BREST, BREST, BREST, BREST };
+  Ball.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC };
+  Ball.dimp.x = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.dimp.y = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.dang.x = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.dang.y = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.cor.x  = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.cor.y  = { 0.0, 0.0, 0.0, 0.0 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB };
 
   // Static bin: floor, left wall, right wall, ceiling (mi = 0). Faces align with the visual BIN props.
-  Solid.pos.x  = { 340.0,  30.0,   650.0,  340.0 };  Solid.pos.y  = { 1190.0, 670.0,  670.0,  190.0 };
-  Solid.lvel.x = { 0.0,    0.0,    0.0,    0.0   };  Solid.lvel.y = { 0.0,    0.0,    0.0,    0.0   };
-  Solid.spin.x = { 0.0,    0.0,    0.0,    0.0   };  Solid.spin.y = { 0.0,    0.0,    0.0,    0.0   };
-  Solid.rot.x  = { 1.0,    1.0,    1.0,    1.0   };  Solid.rot.y  = { 0.0,    0.0,    0.0,    0.0   };
-  Solid.ext.x  = { 320.0,  10.0,   10.0,   320.0 };  Solid.ext.y  = { 50.0,   480.0,  480.0,  10.0  };
-  Solid.mi.x   = { 0.0,    0.0,    0.0,    0.0   };  Solid.mi.y   = { 0.0,    0.0,    0.0,    0.0   };
-  Solid.mat.x  = { 0.1,    0.1,    0.1,    0.1   };  Solid.mat.y  = { 0.5,    0.5,    0.5,    0.5   };
-  Solid.dimp.x = { 0.0,0.0,0.0,0.0 };  Solid.dimp.y = { 0.0,0.0,0.0,0.0 };
-  Solid.dang.x = { 0.0,0.0,0.0,0.0 };  Solid.dang.y = { 0.0,0.0,0.0,0.0 };
-  Solid.cor.x  = { 0.0,0.0,0.0,0.0 };  Solid.cor.y  = { 0.0,0.0,0.0,0.0 };
-  Solid.sflag  = { 0,0,0,0 };
+  Solid.pos.x  = { 340.0, 30.0, 650.0, 340.0 };
+  Solid.pos.y  = { 1190.0, 670.0, 670.0, 190.0 };
+  Solid.lvel.x = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.lvel.y = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.spin.x = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.spin.y = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.rot.x  = { 1.0, 1.0, 1.0, 1.0 };
+  Solid.rot.y  = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.ext.x  = { 320.0, 10.0, 10.0, 320.0 };
+  Solid.ext.y  = { 50.0, 480.0, 480.0, 10.0 };
+  Solid.mi.x   = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.mi.y   = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.mat.x  = { 0.1, 0.1, 0.1, 0.1 };
+  Solid.mat.y  = { 0.5, 0.5, 0.5, 0.5 };
+  Solid.dimp.x = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.dimp.y = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.dang.x = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.dang.y = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.cor.x  = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.cor.y  = { 0.0, 0.0, 0.0, 0.0 };
+  Solid.sflag  = { 0, 0, 0, 0 };
 }
 
 // --- Physics sandbox systems -------------------------------------------------
@@ -247,22 +314,33 @@ rigid_gravity :: map (query { lvel, mi })(lvel) {
   lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
 }
 
-// World-bounds confine: a dynamic body's centre is clamped into the arena and velocity into a wall is
-// zeroed. The static rigid walls do the real collision; this only fires when a body would leave the bin —
-// e.g. squeezed between the player and a wall (over-constrained, the solver can't win) — so nothing can be
-// shoved out of the world. Statics (mi.x = 0, at the walls) are left alone by the `dyn` guard.
+// World-bounds ESCAPE NET — a last resort, not a boundary. The static rigid walls do all real collision; this
+// only catches a body that has been squeezed clean out of the bin (e.g. pinned between the player and a wall,
+// over-constrained, where the solver cannot win). It fires ONLY once a body is ESC_MARGIN past the wall line.
+//
+// It must NOT clamp at the wall line itself. The previous version clamped to `ARENA_FLOOR - ext.y`, which is
+// EXACTLY where a box resting on the floor sits (the floor's top face is ARENA_FLOOR), so every frame it
+// hard-snapped the position and zeroed the gravity impulse of a body that was resting perfectly well —
+// fighting the contact solver's tiny equilibrium penetration. (That turned out not to be the buzz the user
+// saw, but it is still a per-frame tug-of-war with the physics and has no business running on a settled body.)
+// Statics (mi.x = 0) are skipped by the `dyn` guard.
+ESC_MARGIN :: 24.0;
 confine :: map (query { pos, lvel, ext, mi })(pos, lvel) {
   dyn := select(mi.x > 0.0, 1.0, 0.0);
-  lox := ARENA_L + ext.x;    hix := ARENA_R - ext.x;
-  loy := ARENA_TOP + ext.y;  hiy := ARENA_FLOOR - ext.y;
-  lvel.x = select(pos.x <= lox && lvel.x < 0.0, 0.0, lvel.x);
-  lvel.x = select(pos.x >= hix && lvel.x > 0.0, 0.0, lvel.x);
-  lvel.y = select(pos.y <= loy && lvel.y < 0.0, 0.0, lvel.y);
-  lvel.y = select(pos.y >= hiy && lvel.y > 0.0, 0.0, lvel.y);
-  cx := select(pos.x < lox, lox, pos.x);  cx = select(cx > hix, hix, cx);
-  cy := select(pos.y < loy, loy, pos.y);  cy = select(cy > hiy, hiy, cy);
-  pos.x = select(dyn > 0.5, cx, pos.x);
-  pos.y = select(dyn > 0.5, cy, pos.y);
+  lox := ARENA_L + ext.x - ESC_MARGIN;
+  hix := ARENA_R - ext.x + ESC_MARGIN;
+  loy := ARENA_TOP + ext.y - ESC_MARGIN;
+  hiy := ARENA_FLOOR - ext.y + ESC_MARGIN;
+  outx := dyn * select(pos.x < lox, 1.0, select(pos.x > hix, 1.0, 0.0));
+  outy := dyn * select(pos.y < loy, 1.0, select(pos.y > hiy, 1.0, 0.0));
+  cx := select(pos.x < lox, lox, pos.x);
+  cx = select(cx > hix, hix, cx);
+  cy := select(pos.y < loy, loy, pos.y);
+  cy = select(cy > hiy, hiy, cy);
+  pos.x = select(outx > 0.5, cx, pos.x);
+  pos.y = select(outy > 0.5, cy, pos.y);
+  lvel.x = select(outx > 0.5, 0.0, lvel.x);
+  lvel.y = select(outy > 0.5, 0.0, lvel.y);
 }
 
 // Project the boxes (foreground plane, plx = 1.0 → no parallax) to screen columns + half-extents.
@@ -271,7 +349,12 @@ project_box :: system eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
       map (query { pos, ext, bsx, bsy, bhw, bhh })(bsx, bsy, bhw, bhh) eff {
-        s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         bsx = i32(s.x);
         bsy = i32(s.y);
         bhw = i32(ext.x * zoom);
@@ -286,7 +369,12 @@ project_ball :: system eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
       map (query { pos, ext, qsx, qsy, qr })(qsx, qsy, qr) eff {
-        s := camera.to_screen(vec.mk(pos.x, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         qsx = i32(s.x);
         qsy = i32(s.y);
         qr  = i32(ext.x * zoom);
@@ -303,23 +391,41 @@ draw_rbox :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { bsx, bsy, bhw, bhh, rot, bcol }) eff {
-      diag := bhw + bhh;                    // conservative bound for any rotation
-      y0 := bsy - diag;  y1 := bsy + diag;
-      x0 := bsx - diag;  x1 := bsx + diag;
-      if (y0 < 0)  { y0 = 0; }
-      if (y1 > vh) { y1 = vh; }
-      if (x0 < 0)  { x0 = 0; }
-      if (x1 > vw) { x1 = vw; }
-      hw := float(bhw);  hh := float(bhh);
+      diag := bhw + bhh; // conservative bound for any rotation
+      y0   := bsy - diag;
+      y1   := bsy + diag;
+      x0   := bsx - diag;
+      x1   := bsx + diag;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      hw := float(bhw);
+      hh := float(bhh);
       yy := y0;
       for (; yy < y1;) {
         xx := x0;
         for (; xx < x1;) {
-          dx := float(xx - bsx);
-          dy := float(yy - bsy);
-          lx := dx * rot.x + dy * rot.y;        // inverse-rotate the offset into the box's local frame
+          // Sample the pixel's CENTRE (xx + 0.5), not its corner. Sampling the corner puts the sample points
+          // exactly ON the box boundary (a box of half-height 44 has its bottom row at dy = 44, testing
+          // 44 <= 44), so the tiniest residual tilt flips whole corner pixels in and out: with rot.y = -1e-4,
+          // the bottom-LEFT corner gives |ly| = 43.9956 (in) while the bottom-RIGHT gives 44.0044 (out) — a
+          // 1-pixel STEP on the bottom edge produced by 0.02px of physical tilt. It also made every box
+          // 2*hh+1 pixels tall (one row too many). Half-pixel offsets keep the boundary off every sample
+          // point, so a settled box rasterises perfectly flat and exactly 2*hw by 2*hh.
+          dx := float(xx - bsx) + 0.5;
+          dy := float(yy - bsy) + 0.5;
+          lx := dx * rot.x + dy * rot.y; // inverse-rotate the offset into the box's local frame
           ly := dy * rot.x - dx * rot.y;
-          if (vec.absf(lx) <= hw && vec.absf(ly) <= hh) {
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
             framebuffer[yy * vw + xx] = bcol;
           }
           xx = xx + 1;
@@ -335,8 +441,8 @@ draw_ball :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { qsx, qsy, qr, qcol }) eff {
-      r2 := qr * qr;
-      yy := qsy - qr;
+      r2   := qr * qr;
+      yy   := qsy - qr;
       ylim := qsy + qr + 1;
       if (yy < 0) {
         yy = 0;
@@ -345,7 +451,7 @@ draw_ball :: system (query { framebuffer })(framebuffer) eff {
         ylim = vh;
       }
       for (; yy < ylim;) {
-        xx := qsx - qr;
+        xx   := qsx - qr;
         xlim := qsx + qr + 1;
         if (xx < 0) {
           xx = 0;
@@ -354,9 +460,11 @@ draw_ball :: system (query { framebuffer })(framebuffer) eff {
           xlim = vw;
         }
         for (; xx < xlim;) {
-          dx := xx - qsx;
-          dy := yy - qsy;
-          if (dx * dx + dy * dy <= r2) {
+          // Pixel CENTRES, matching draw_rbox — corner sampling makes the disc 2*qr+1 across (one row too
+          // many) so a ball's bottom row would sit a pixel lower than a box's resting on the same surface.
+          dx := float(xx - qsx) + 0.5;
+          dy := float(yy - qsy) + 0.5;
+          if (dx * dx + dy * dy < float(r2)) {
             framebuffer[yy * vw + xx] = qcol;
           }
           xx = xx + 1;
@@ -409,7 +517,12 @@ project :: system eff {
     map (query { eye, zoom }) eff {
       map (query { pos, rw, rh, plx, rx, ry })(rx, ry) eff {
         wx := pos.x + (eye.x - EYE0) * (1.0 - plx);
-        s := camera.to_screen(vec.mk(wx, pos.y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s  := camera.to_screen(
+          vec.mk(wx, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         rx = i32(s.x) - rw / 2;
         ry = i32(s.y) - rh / 2;
       };
@@ -423,7 +536,12 @@ project_hill :: system eff {
     map (query { eye, zoom }) eff {
       map (query { hpx, hpy, hsx, hsy })(hsx, hsy) eff {
         wx := hpx + (eye.x - EYE0) * (1.0 - PAR_HILL);
-        s := camera.to_screen(vec.mk(wx, hpy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s  := camera.to_screen(
+          vec.mk(wx, hpy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         hsx = i32(s.x);
         hsy = i32(s.y);
       };
@@ -437,7 +555,12 @@ project_round :: system eff {
     map (query { eye, zoom }) eff {
       map (query { cpx, cpy, cplx, csx, csy })(csx, csy) eff {
         wx := cpx + (eye.x - EYE0) * (1.0 - cplx);
-        s := camera.to_screen(vec.mk(wx, cpy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s  := camera.to_screen(
+          vec.mk(wx, cpy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         csx = i32(s.x);
         csy = i32(s.y);
       };
@@ -450,7 +573,12 @@ project_player :: system eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
       map (query { ppx, prx, pry })(prx, pry) eff {
-        s := camera.to_screen(vec.mk(ppx, PLAYER_Y), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s := camera.to_screen(
+          vec.mk(ppx, PLAYER_Y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         prx = i32(s.x) - PW / 2;
         pry = i32(s.y) - PW / 2;
       };
@@ -463,7 +591,7 @@ draw_hills :: system (query { framebuffer })(framebuffer) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { hsx, hsy, hhw, hht, hcol }) eff {
       apex := hsy - hht;
-      yy := apex;
+      yy   := apex;
       if (yy < 0) {
         yy = 0;
       }
@@ -473,8 +601,8 @@ draw_hills :: system (query { framebuffer })(framebuffer) eff {
       }
       for (; yy < ybase;) {
         half := hhw * (yy - apex) / hht;
-        x0 := hsx - half;
-        x1 := hsx + half;
+        x0   := hsx - half;
+        x1   := hsx + half;
         if (x0 < 0) {
           x0 = 0;
         }
@@ -484,7 +612,7 @@ draw_hills :: system (query { framebuffer })(framebuffer) eff {
         xx := x0;
         for (; xx < x1;) {
           framebuffer[yy * vw + xx] = hcol;
-          xx = xx + 1;
+          xx                        = xx + 1;
         }
         yy = yy + 1;
       }
@@ -496,8 +624,8 @@ draw_round :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { csx, csy, crad, ccol }) eff {
-      r2 := crad * crad;
-      yy := csy - crad;
+      r2   := crad * crad;
+      yy   := csy - crad;
       ylim := csy + crad + 1;
       if (yy < 0) {
         yy = 0;
@@ -506,7 +634,7 @@ draw_round :: system (query { framebuffer })(framebuffer) eff {
         ylim = vh;
       }
       for (; yy < ylim;) {
-        xx := csx - crad;
+        xx   := csx - crad;
         xlim := csx + crad + 1;
         if (xx < 0) {
           xx = 0;
@@ -553,7 +681,7 @@ draw_player :: system (query { framebuffer })(framebuffer) eff {
         xx := x0;
         for (; xx < x1;) {
           framebuffer[yy * vw + xx] = PLAYER;
-          xx = xx + 1;
+          xx                        = xx + 1;
         }
         yy = yy + 1;
       }
@@ -562,15 +690,123 @@ draw_player :: system (query { framebuffer })(framebuffer) eff {
 }
 
 seed_text :: system eff {
-  insert(Sign { twx: 2100.0, twy: 380.0, tplx: 0.25,   tstr: "CURT REYES",         tlen: 10, tsz: 112, tcol: 0xffffff, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 2100.0, twy: 560.0, tplx: 0.4375, tstr: "LANGUAGE + SYSTEMS", tlen: 18, tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 1550.0, twy: 500.0, tplx: 0.25,   tstr: "SCROLL LEFT",        tlen: 11, tsz: 46,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 1150.0, twy: 640.0, tplx: 0.625,  tstr: "TRY THE PLAYGROUND", tlen: 18, tsz: 40,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 2760.0, twy: 700.0, tplx: 0.625,  tstr: "ARCHE LANG",         tlen: 10, tsz: 60,  tcol: S6,       tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 3350.0, twy: 840.0, tplx: 0.875,  tstr: "DATA-ORIENTED",      tlen: 13, tsz: 44,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 3850.0, twy: 600.0, tplx: 0.5,    tstr: "COMPILES TO WASM",   tlen: 16, tsz: 44,  tcol: S5,       tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 4350.0, twy: 780.0, tplx: 0.75,   tstr: "GITHUB - Truc4",      tlen: 13, tsz: 42,  tcol: PLAYER,   tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 4800.0, twy: 640.0, tplx: 0.5625, tstr: "EMAIL ME: curt.reyes.dev@gmail.com",           tlen: 8,  tsz: 42,  tcol: CLOUD,    tx: 0, ty: 0 })(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 2100.0,
+      twy  : 380.0,
+      tplx : 0.25,
+      tstr : "CURT REYES",
+      tlen : 10,
+      tsz  : 112,
+      tcol : 0xffffff,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 2100.0,
+      twy  : 560.0,
+      tplx : 0.4375,
+      tstr : "LANGUAGE + SYSTEMS",
+      tlen : 18,
+      tsz  : 42,
+      tcol : CLOUD,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 1550.0,
+      twy  : 500.0,
+      tplx : 0.25,
+      tstr : "SCROLL LEFT",
+      tlen : 11,
+      tsz  : 46,
+      tcol : CLOUD,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 1150.0,
+      twy  : 640.0,
+      tplx : 0.625,
+      tstr : "TRY THE PLAYGROUND",
+      tlen : 18,
+      tsz  : 40,
+      tcol : PLAYER,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 2760.0,
+      twy  : 700.0,
+      tplx : 0.625,
+      tstr : "ARCHE LANG",
+      tlen : 10,
+      tsz  : 60,
+      tcol : S6,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 3350.0,
+      twy  : 840.0,
+      tplx : 0.875,
+      tstr : "DATA-ORIENTED",
+      tlen : 13,
+      tsz  : 44,
+      tcol : CLOUD,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 3850.0,
+      twy  : 600.0,
+      tplx : 0.5,
+      tstr : "COMPILES TO WASM",
+      tlen : 16,
+      tsz  : 44,
+      tcol : S5,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 4350.0,
+      twy  : 780.0,
+      tplx : 0.75,
+      tstr : "GITHUB - Truc4",
+      tlen : 13,
+      tsz  : 42,
+      tcol : PLAYER,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
+  insert(
+    Sign {
+      twx  : 4800.0,
+      twy  : 640.0,
+      tplx : 0.5625,
+      tstr : "EMAIL ME - curt.reyes.dev@gmail.com",
+      tlen : 8,
+      tsz  : 42,
+      tcol : CLOUD,
+      tx   : 0,
+      ty   : 0,
+    },
+  )(_:, _ok:);
 }
 
 project_text :: system eff {
@@ -579,7 +815,12 @@ project_text :: system eff {
     map (query { eye, zoom }) eff {
       map (query { twx, twy, tplx, tlen, tsz, tx, ty })(tx, ty) eff {
         wx := twx + (eye.x - EYE0) * (1.0 - tplx);
-        s := camera.to_screen(vec.mk(wx, twy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        s  := camera.to_screen(
+          vec.mk(wx, twy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
         tx = i32(s.x) - (tlen * tsz) / 2;
         ty = i32(s.y);
       };
@@ -592,10 +833,48 @@ done :: map (Closed) eff {
 }
 
 seed_playground :: system eff {
-  insert(Panel { screen: (0, 0), size: (0, 0), title: "PLAYGROUND", len: 10, view: (0, 0) })(_:, _ok:);
-  insert(Editor { screen: (0, 0), size: (0, 0), source: "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })", len: 0, cursor: 0, submit: 0, key: 0, view: (0, 0), bg: ED_BG, fg: ED_FG })(_:, _ok:);
-  insert(Output { screen: (0, 0), size: (0, 0), output: "", len: 0, view: (0, 0), bg: OUT_BG, fg: OUT_FG })(_:, _ok:);
-  insert(Button { screen: (0, 0), size: (0, 0), label: "RUN", len: 3, clicked: 0, wasdown: 0, mouse: (0, 0), mouse_down: 0, view: (0, 0) })(_:, _ok:);
+  insert(Panel { screen: (0, 0), size: (0, 0), title: "PLAYGROUND", len: 10, view: (0, 0) })(
+    _   : ,
+    _ok : ,
+  );
+  insert(
+    Editor {
+      screen : (0, 0),
+      size   : (0, 0),
+      source : "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })",
+      len    : 0,
+      cursor : 0,
+      submit : 0,
+      key    : 0,
+      view   : (0, 0),
+      bg     : ED_BG,
+      fg     : ED_FG,
+    },
+  )(_:, _ok:);
+  insert(
+    Output {
+      screen : (0, 0),
+      size   : (0, 0),
+      output : "",
+      len    : 0,
+      view   : (0, 0),
+      bg     : OUT_BG,
+      fg     : OUT_FG,
+    },
+  )(_:, _ok:);
+  insert(
+    Button {
+      screen     : (0, 0),
+      size       : (0, 0),
+      label      : "RUN",
+      len        : 3,
+      clicked    : 0,
+      wasdown    : 0,
+      mouse      : (0, 0),
+      mouse_down : 0,
+      view       : (0, 0),
+    },
+  )(_:, _ok:);
 }
 
 measure :: system eff {
@@ -611,26 +890,43 @@ layout :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      s   := camera.to_screen(vec.mk(PANEL_WX, PANEL_WY), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
-      px  := i32(s.x);
-      py  := i32(s.y);
+      s := camera.to_screen(
+        vec.mk(PANEL_WX, PANEL_WY),
+        eye,
+        zoom,
+        vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+      );
+      px   := i32(s.x);
+      py   := i32(s.y);
       cx   := ui.content_x(px);
       cw   := ui.content_w(PANEL_W);
       cy0  := ui.content_top(py);
-      half := (cw - ui.GAP) / 2;          // editor | output share a row, split the content width
-      cyb  := ui.next(cy0, PANE_H);        // button row, below the side-by-side panes
+      half := (cw - ui.GAP) / 2; // editor | output share a row, split the content width
+      cyb  := ui.next(cy0, PANE_H); // button row, below the side-by-side panes
       ph   := cyb + BTN_H + ui.PAD - py;
       map (query { title, screen, size })(screen, size) eff {
-        screen.x = px; screen.y = py; size.w = PANEL_W; size.h = ph;
+        screen.x = px;
+        screen.y = py;
+        size.w   = PANEL_W;
+        size.h   = ph;
       };
       map (query { source, screen, size })(screen, size) eff {
-        screen.x = cx; screen.y = cy0; size.w = half; size.h = PANE_H;
+        screen.x = cx;
+        screen.y = cy0;
+        size.w   = half;
+        size.h   = PANE_H;
       };
       map (query { output, screen, size })(screen, size) eff {
-        screen.x = cx + half + ui.GAP; screen.y = cy0; size.w = half; size.h = PANE_H;
+        screen.x = cx + half + ui.GAP;
+        screen.y = cy0;
+        size.w   = half;
+        size.h   = PANE_H;
       };
       map (query { label, screen, size })(screen, size) eff {
-        screen.x = cx; screen.y = cyb; size.w = BTN_W; size.h = BTN_H;
+        screen.x = cx;
+        screen.y = cyb;
+        size.w   = BTN_W;
+        size.h   = BTN_H;
       };
     };
   };
@@ -643,9 +939,18 @@ ui_input :: system eff {
     gfx.mouse_x(handle)(gmx:);
     gfx.mouse_y(handle)(gmy:);
     gfx.mouse_down(handle)(gmd:);
-    map (query { view })(view) eff { view.w = gw; view.h = gh; };
-    map (query { key })(key) eff { key = gk; };
-    map (query { mouse, mouse_down })(mouse, mouse_down) eff { mouse.x = gmx; mouse.y = gmy; mouse_down = gmd; };
+    map (query { view })(view) eff {
+      view.w = gw;
+      view.h = gh;
+    };
+    map (query { key })(key) eff {
+      key = gk;
+    };
+    map (query { mouse, mouse_down })(mouse, mouse_down) eff {
+      mouse.x    = gmx;
+      mouse.y    = gmy;
+      mouse_down = gmd;
+    };
   };
 }
 
@@ -663,25 +968,42 @@ run_it :: system eff {
   map (query { source, len, submit })(len, submit) eff {
     if (submit == 1) {
       submit = 0;
-      len = 0;
-      for (; len < source.length && source[len] != 0; len += 1) { }
+      len    = 0;
+      for (; len < source.length && source[len] != 0; len += 1) {
+      }
       n := len;
       map (query { output, len })(len) eff {
         compiler.run(source, n, output, output.length)(_:, output);
         len = 0;
-        for (; len < output.length && output[len] != 0; len += 1) { }
+        for (; len < output.length && output[len] != 0; len += 1) {
+        }
       };
     }
   };
 }
 
 // One TGS substep of the rigid solve, listed 16×/frame in the schedule below. Per-substep gravity + a
-// contact-count pass (for mass-splitting) + 2 soft-constraint velocity iterations + a DT position integrate.
+// contact-count pass (for mass-splitting) + 2 soft-constraint velocity iterations + a DT position integrate
+// + a RELAX pass. The relax re-solves the contacts with the soft bias OFF, which takes back the extra velocity
+// the biased solve injected to push penetration out. Without it, that surplus stays in `lvel`/`spin`, re-enters
+// the next substep, and a settled body never reaches a fixed point — every box buzzed ~1px forever.
 phys_sub :: func() -> Schedule {
-  return seq({ rigid_gravity, rigid.contacts,
-               rigid.solve_lin, rigid.solve_ang, rigid.apply,
-               rigid.solve_lin, rigid.solve_ang, rigid.apply,
-               rigid.integrate });
+  return seq(
+    {
+      rigid_gravity,
+      rigid.contacts,
+      rigid.solve_lin,
+      rigid.solve_ang,
+      rigid.apply,
+      rigid.solve_lin,
+      rigid.solve_ang,
+      rigid.apply,
+      rigid.integrate,
+      rigid.solve_lin_relax,
+      rigid.solve_ang_relax,
+      rigid.apply,
+    },
+  );
 }
 
 #run {
@@ -694,22 +1016,66 @@ phys_sub :: func() -> Schedule {
       seed_playground,
       measure,
       textedit.open,
-      forever(seq({
-        walk, pan, clamp_player,
-        sync_player_rbody,
-        // Substepped TGS-Soft rigid solve: 16 substeps/frame (phys_sub = gravity + contact-count + 2 soft
-        // velocity iterations + integrate). Rigidity comes from the small step + the device's soft-constraint
-        // velocity bias (no position pass), so stacks settle solid instead of springing. See rigid.arche.
-        phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(),
-        phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(), phys_sub(),
-        rigid.rest, confine,
-        ui_input,
-        project, project_hill, project_round, project_box, project_ball, project_player, project_text, layout,
-        gfx.clear, draw_hills, draw_round, gfx.rect, draw_rbox, draw_ball, draw_player, text.render,
-        textedit.step, textedit.text, textedit.poll_run, button.poll, run_button, run_it,
-        panel.render, textedit.render, textview.render, button.render,
-        gfx.present, gfx.poll, done,
-      })),
+      forever(
+        seq(
+          {
+            walk,
+            pan,
+            clamp_player,
+            sync_player_rbody,
+            // Substepped TGS-Soft rigid solve: 16 substeps/frame (phys_sub = gravity + contact-count + 2 soft
+            // velocity iterations + integrate). Rigidity comes from the small step + the device's soft-constraint
+            // velocity bias (no position pass), so stacks settle solid instead of springing. See rigid.arche.
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            phys_sub(),
+            confine,
+            ui_input,
+            project,
+            project_hill,
+            project_round,
+            project_box,
+            project_ball,
+            project_player,
+            project_text,
+            layout,
+            gfx.clear,
+            draw_hills,
+            draw_round,
+            gfx.rect,
+            draw_rbox,
+            draw_ball,
+            draw_player,
+            text.render,
+            textedit.step,
+            textedit.text,
+            textedit.poll_run,
+            button.poll,
+            run_button,
+            run_it,
+            panel.render,
+            textedit.render,
+            textview.render,
+            button.render,
+            gfx.present,
+            gfx.poll,
+            done,
+          },
+        ),
+      ),
     },
   )
 }
