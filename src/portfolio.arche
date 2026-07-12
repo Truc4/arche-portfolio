@@ -17,6 +17,10 @@ SCROLL_SPEED :: 1.0;
 // edge". The right-hand branch was never reached, so walking right never pushed the camera. A fraction
 // cannot invert: lo = 0.3*vw is always left of hi = 0.7*vw, at any width.
 CAM_MARGIN  :: 0.3; // fraction of the viewport width, from each edge; inside this band the camera is still
+// A phone's viewport is far narrower, so a 30%-from-each-edge dead zone leaves the player almost no room —
+// you hit the edge of the screen before the camera has bothered to move. On touch the band shrinks to the
+// middle ~16%, so the view starts scrolling while the player is still close to centre.
+CAM_MARGIN_M :: 0.42;
 CAM_PUSH    :: 0.2; // how fast the camera catches up when the player leaves the dead zone
 CAM_LERP    :: 0.12; // how fast it glides when re-centring on a focused panel
 EYE_Y0      :: 720.0; // the world's resting eye height (matches the Camera seed)
@@ -1017,6 +1021,7 @@ cam_push :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     gfx.axis_x(handle)(dx:);
+    gfx.coarse_pointer(handle)(coarse:);
     map (query { tax }) eff {
     map (query { fown }) eff {
       map (query { ppx }) eff {
@@ -1025,7 +1030,8 @@ cam_push :: system eff {
           // camera would sit still while the pads walked the player straight off the edge of the screen.
           adx := select(dx != 0, dx, tax);
           sx := (ppx - eye.x) * zoom + float(vw) * 0.5; // the player, in screen px
-          lo := float(vw) * CAM_MARGIN;
+          marg := select(coarse == 1, CAM_MARGIN_M, CAM_MARGIN);
+          lo := float(vw) * marg;
           hi := float(vw) - lo;
           past := select(sx < lo, sx - lo, select(sx > hi, sx - hi, 0.0)); // signed overshoot, 0 in the band
           // Push ONLY when you are walking INTO the edge you are already past — `past` and `dx` must agree in

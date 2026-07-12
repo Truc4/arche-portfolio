@@ -626,9 +626,14 @@
         b.addEventListener("pointerleave", release);
         b.addEventListener("pointerup", release);
         b.addEventListener("pointercancel", release);
-        // Holding a movement pad IS a long press, so the browser offers its context menu / text-selection
-        // callout right on top of the controls. CSS alone does not stop it (Android fires `contextmenu`
-        // regardless of -webkit-touch-callout), so refuse the event outright.
+        // Holding a movement pad IS a long press, so the browser wants to offer its context menu / selection
+        // callout — with a haptic buzz — right on top of the controls.
+        //
+        // Cancelling `contextmenu` is NOT enough: on Android the long-press haptic fires BEFORE that event, so
+        // you still feel the buzz even though no menu appears. The GESTURE itself has to be refused, and the
+        // only thing that does that is preventDefault on `touchstart` (which must be a non-passive listener,
+        // or the browser ignores it). preventDefault on `pointerdown` does not cover it.
+        b.addEventListener("touchstart", (ev) => { ev.preventDefault(); }, { passive: false });
         b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); });
         self.btns.set(bid, e);
         return e;
