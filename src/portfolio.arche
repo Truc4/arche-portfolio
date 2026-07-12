@@ -870,11 +870,12 @@ vinput_clear :: map (query { tax, tjump })(tax, tjump) {
 vinput :: system eff {
   map (query { bid, clicked, held }) eff {
     map (query { tax, tjump })(tax, tjump) eff {
-      // LEFT/RIGHT use `held` — walk for as long as the pad is down. (An edge would step the player once per
-      // tap.) JUMP uses `clicked`, an edge, so resting a thumb on it cannot pogo.
-      // Both pads down cancel to zero, exactly like pressing both arrow keys.
+      // All three pads use `held` — the level, not the edge. LEFT/RIGHT walk for as long as they are down;
+      // JUMP does too, so holding it bounces you the moment you land, exactly like holding the up key. (It was
+      // an edge, which meant the pad and the keyboard disagreed about what holding jump means.) `clicked` is
+      // deliberately unused here. Both direction pads down cancel to zero, like pressing both arrow keys.
       tax = tax + select(bid == BTN_RIGHT && held == 1, 1, 0) - select(bid == BTN_LEFT && held == 1, 1, 0);
-      tjump = select(bid == BTN_JUMP && clicked == 1, 1, tjump);
+      tjump = select(bid == BTN_JUMP && held == 1, 1, tjump);
     };
   };
 }
@@ -939,14 +940,20 @@ focus_update :: system eff {
 // contribute nothing to `sup.y` and cannot be jumped from — only real floor can: the ground, a stair tread,
 // or the top of a box you are standing on.
 jump :: system eff {
-  map (query { gkey }) eff {
+  map (query { handle }) eff {
+    // HELD state, not the drained key queue. `gkey` only carries a key on the frames the OS auto-repeat
+    // happened to fire (~30/s against a 60fps loop), so polling it for a HELD jump caught the landing frame
+    // only about half the time — you would hold jump, land, and sometimes just... not jump. Whether you
+    // bounced was a coin flip on which frame you touched down. `axis_y` is level state and is true on EVERY
+    // frame the key is down, so landing while holding always bounces.
+    gfx.axis_y(handle)(ay:);
     map (query { tjump }) eff {
     map (query { fown }) eff {
       map (query { ppx, lvel, sup })(lvel) eff {
         grounded := select(sup.y > 0.3, 1.0, 0.0);
         mine := select(fown == FOCUS_WORLD, 1.0, 0.0); // not ours to act on while the editor has the keyboard
-        // the up arrow OR the on-screen JUMP pad — both are one-frame edges, so neither can pogo when held
-        key_or_pad := select(gkey == KEY_UP, 1, tjump);
+        // up key (↑ / W / Space) OR the on-screen JUMP pad — both are HELD, so holding either bunny-hops
+        key_or_pad := select(ay < 0, 1, tjump);
         pressed := select(key_or_pad == 1, 1.0, 0.0) * mine;
         go := grounded * pressed;
         up := 0.0 - JUMP;
