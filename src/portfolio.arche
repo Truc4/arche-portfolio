@@ -27,6 +27,9 @@ ARENA_FLOOR :: 1140.0; // floor line == world ground top == FLOOR prop top
 WALL_TOP    :: 940.0; // top of the container walls (200 tall) — open above this
 JUMP        :: 13.0; // jump impulse (px/frame); with GRAV=0.4 that is a ~210px apex — clears a 50px riser
 KEY_UP      :: 1002; // gfx arrow-up sentinel
+// FOCUS — who owns the keyboard. Exactly one of the two, always.
+FOCUS_WORLD :: 0; // arrows walk/jump the player; the editor receives nothing
+FOCUS_EDIT  :: 1; // every key goes to the editor; the player does not move
 // The sandbox section's frame. These are the SAME colours the `panel` device paints the playground with
 // (extras/ui/panel/window/backend.arche: FRAME_BORDER / FRAME_BG), so the two sections read as the same
 // widget. We cannot literally use the `panel` device here: it renders in the foreground UI pass, and this
@@ -116,6 +119,8 @@ ssy    :: int;
 shw    :: int;
 shh    :: int;
 gkey   :: int; // the frame's key, drained ONCE (see input_read)
+fown   :: int; // FOCUS_WORLD | FOCUS_EDIT — who owns the keyboard
+fwas   :: int; // previous mouse_down, for rising-edge (click) detection
 kw     :: int;
 kh     :: int;
 kcol   :: int;
@@ -146,6 +151,10 @@ Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup,
 Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, qsx, qsy, qr, qcol }
 Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, sflag, ssx, ssy, shw, shh }
 Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup }
+// THE FOCUS POOL. arche has no tags (an archetype's component set is fixed at compile time), so "who has
+// focus" is a one-row pool rather than a component you attach and detach. It is the single authority: the
+// world and the editor both read it, and neither ever guesses.
+Focus       :: arche { fown, fwas }
 Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
@@ -161,6 +170,8 @@ Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol
 [4]RBody; // rigid datasheet storage floor (unused; the archetypes carry the real bodies)
 [2]Player(1); // extent 2 (not 1) to dodge the singleton-pool query-broadcast bug — see
 // ../arche/tests/extras/query_singleton_pool_broadcast.arche
+[2]Focus(1); // extent 2 (not 1), plain non-datasheet columns — dodges the singleton-pool query-broadcast
+// bug, exactly as [2]Player(1) does (../arche/tests/extras/query_singleton_pool_broadcast.arche)
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
@@ -273,6 +284,11 @@ seed :: system {
   Player.cor.y  = { 0.0 };
   Player.sup.x  = { 0.0 };
   Player.sup.y  = { 0.0 };
+
+  // The WORLD owns the keyboard on boot — you can walk the moment the page loads. (The editor used to grab
+  // it in textedit_be_open, which is why arrows did nothing until you clicked the canvas.)
+  Focus.fown = { FOCUS_WORLD };
+  Focus.fwas = { 0 };
 
   Camera.eye.x = { 2100.0 };
   Camera.eye.y = { 720.0 };
@@ -787,6 +803,50 @@ input_read :: system eff {
   };
 }
 
+// FOCUS — decide who owns the keyboard this frame. The two backends reach the same answer by different
+// routes, and the pool is what makes them agree.
+//
+// NATIVE: the editor is drawn into our framebuffer, so a click on it IS a canvas click. Hit-test the pointer
+// against the playground panel's rect (written by `layout`, which now runs first) on the rising edge of a
+// press: inside ⇒ the editor takes the keyboard, outside ⇒ the world takes it back. This is the whole
+// mechanism there — nothing else knows about focus.
+//
+// BROWSER: the playground is REAL DOM sitting above the canvas, so a click on the editor never reaches
+// `gfx.mouse_down` — it is invisible to the hit-test. It shows up instead as `gfx.text_focus`, which reports
+// that a text field has taken the keyboard (and gfx has correspondingly gone silent). Meanwhile a canvas
+// press is, by construction, always a click on the WORLD. So:
+//   - a canvas press is AUTHORITATIVE (it is the only click we can see, and we know what it means);
+//   - otherwise we adopt whatever the DOM says.
+// Clicking away from the editor also has to BLUR it, or the browser would keep routing keys to a text field
+// we no longer consider focused — `gfx.release_text` does that (and is a no-op natively).
+focus_update :: system eff {
+  map (query { handle }) eff {
+    gfx.mouse_x(handle)(mx:);
+    gfx.mouse_y(handle)(my:);
+    gfx.mouse_down(handle)(md:);
+    gfx.text_focus(handle)(tf:);
+    map (query { title, screen, size }) eff {
+      map (query { fown, fwas })(fown, fwas) eff {
+        // rising edge of a press on the CANVAS — the button device's idiom (ui/button/window/backend.arche)
+        press := select(md == 1 && fwas == 0, 1, 0);
+        inx := select(mx >= screen.x && mx < screen.x + size.w, 1, 0);
+        iny := select(my >= screen.y && my < screen.y + size.h, 1, 0);
+        inside := select(inx == 1 && iny == 1, FOCUS_EDIT, FOCUS_WORLD);
+        adopt := select(tf == 1, FOCUS_EDIT, fown); // no click: believe the DOM
+        fown = select(press == 1, inside, adopt);   // a click: believe ourselves
+        fwas = md;
+      };
+    };
+    // Hand the keyboard back to the world when the user clicks out of the editor (browser: blur the
+    // <textarea>). Reading the pool again after the write above keeps this a plain, ordered consequence.
+    map (query { fown }) eff {
+      if (fown == FOCUS_WORLD) {
+        gfx.release_text(handle)(_:);
+      }
+    };
+  };
+}
+
 // JUMP (up arrow) — a velocity impulse, allowed ONLY when standing on FLOOR.
 //
 // The gate is `sup.y > 0.3`, not `cor.x > 0`. `cor.x` is just the contact COUNT, so it was true when you were
@@ -797,12 +857,15 @@ input_read :: system eff {
 // or the top of a box you are standing on.
 jump :: system eff {
   map (query { gkey }) eff {
-    map (query { ppx, lvel, sup })(lvel) eff {
-      grounded := select(sup.y > 0.3, 1.0, 0.0);
-      pressed := select(gkey == KEY_UP, 1.0, 0.0);
-      go := grounded * pressed;
-      up := 0.0 - JUMP;
-      lvel.y = select(go > 0.5, up, lvel.y);
+    map (query { fown }) eff {
+      map (query { ppx, lvel, sup })(lvel) eff {
+        grounded := select(sup.y > 0.3, 1.0, 0.0);
+        mine := select(fown == FOCUS_WORLD, 1.0, 0.0); // not ours to act on while the editor has the keyboard
+        pressed := select(gkey == KEY_UP, 1.0, 0.0) * mine;
+        go := grounded * pressed;
+        up := 0.0 - JUMP;
+        lvel.y = select(go > 0.5, up, lvel.y);
+      };
     };
   };
 }
@@ -810,6 +873,7 @@ jump :: system eff {
 walk :: system eff {
   map (query { handle }) eff {
     gfx.axis_x(handle)(dx:);
+    map (query { fown }) eff {
     // `ppx` is in the query ONLY to scope this to the Player archetype — a bare `query { lvel }` would match
     // every rigid body (Box, Ball, Solid) and drive the whole world with the arrow keys.
     //
@@ -820,18 +884,25 @@ walk :: system eff {
     // mu = 0.45 the friction available dwarfs gravity, so you just hang there. (Lowering friction cannot fix it:
     // the bound scales with how hard you push, so ANY friction plus a constant push clings.) Stop pushing and
     // the normal impulse collapses to nothing, so there is no friction to hold you and you simply slide down.
-    map (query { ppx, lvel, sup })(lvel) eff {
-      held := select(dx != 0, 1.0, 0.0);
-      into := float(dx) * sup.x; // > 0 ⇒ the wall blocking us is the way we are pressing
-      blocked := select(into > 0.3, 1.0, 0.0);
-      drive := held * (1.0 - blocked);
-      tgt := float(dx) * SPEED;
-      // No key: damp to a stop, but only while GROUNDED. The player has almost no friction (see PFRIC), so
-      // this is what stops it — and gating on `sup.y` means we never damp in mid-air, which would flatten the
-      // arc of a jump and kill the slide down a wall.
-      grounded := select(sup.y > 0.3, 1.0, 0.0);
-      coast := lvel.x * select(grounded > 0.5, WALK_DAMP, 1.0);
-      lvel.x = select(drive > 0.5, tgt, coast);
+      map (query { ppx, lvel, sup })(lvel) eff {
+        // Only walk if the WORLD owns the keyboard. If the editor has it, we fall through to `coast` — the
+        // player damps to a stop rather than freezing mid-stride, and keeps its physics (it can still be
+        // shoved by a box, still falls). `axis_x` is HELD state, not a drained key, so this gate is separate
+        // from the one in `jump`; on the web it is belt-and-braces, since gfx already reports 0 while a text
+        // field owns the keyboard, but natively it is the only thing stopping the player.
+        mine := select(fown == FOCUS_WORLD, 1.0, 0.0);
+        held := select(dx != 0, 1.0, 0.0) * mine;
+        into := float(dx) * sup.x; // > 0 ⇒ the wall blocking us is the way we are pressing
+        blocked := select(into > 0.3, 1.0, 0.0);
+        drive := held * (1.0 - blocked);
+        tgt := float(dx) * SPEED;
+        // No key: damp to a stop, but only while GROUNDED. The player has almost no friction (see PFRIC), so
+        // this is what stops it — and gating on `sup.y` means we never damp in mid-air, which would flatten
+        // the arc of a jump and kill the slide down a wall.
+        grounded := select(sup.y > 0.3, 1.0, 0.0);
+        coast := lvel.x * select(grounded > 0.5, WALK_DAMP, 1.0);
+        lvel.x = select(drive > 0.5, tgt, coast);
+      };
     };
   };
 }
@@ -1346,14 +1417,14 @@ ui_input :: system eff {
       view.w = gw;
       view.h = gh;
     };
-    // MOVEMENT keys must not reach the editor. `gk` is the frame's one drained key and it drives the player —
-    // but it was also piped straight into Editor.key, so every step you took ALSO moved the editor's cursor.
-    // In the browser the editor is a real DOM element, and arrow keys landing on it while it sits off-screen
-    // make the browser scroll it into view, shifting the page under the canvas. Arrows belong to the world;
-    // everything else (typing) belongs to the editor.
-    map (query { key })(key) eff {
-      arrow := select(gk >= 1000 && gk <= 1003, 1, 0);
-      key = select(arrow == 1, 0, gk);
+    // Route the frame's key to WHOEVER OWNS THE KEYBOARD. Nobody gets a key they do not own. This replaces a
+    // hardcoded rule — "arrows always go to the world, everything else always goes to the editor" — which was
+    // wrong in both directions: it moved the editor's cursor while you were merely walking past, and it let
+    // you type into an editor you had never focused.
+    map (query { fown }) eff {
+      map (query { key })(key) eff {
+        key = select(fown == FOCUS_EDIT, gk, 0);
+      };
     };
     map (query { mouse, mouse_down })(mouse, mouse_down) eff {
       mouse.x    = gmx;
@@ -1432,13 +1503,19 @@ phys_sub :: func() -> Schedule {
             // VELOCITY, then the solver does the rest (the player is a fully dynamic tumbling body now —
             // gravity, contacts, friction, shoves, tumbling).
             input_read,
+            // `pan` moves the camera and `layout` projects the playground's rect from it, so both must run
+            // BEFORE `focus_update` hit-tests the pointer against that rect — otherwise the click would be
+            // tested against last frame's panel position. (This also un-stales the same rect for button.poll.)
+            pan,
+            layout,
+            // Decide who owns the keyboard, THEN gate everything that reads it. Nothing downstream guesses.
+            focus_update,
             // `supports` folds each body's summed contact NORMAL into `sup` (once per frame, not per substep).
             // walk/jump read it to know what they are touching and WHICH WAY: a real grounded test, and which
             // side a wall is on. It uses last frame's solved positions, which is exactly what input wants.
             rigid.supports,
             walk,
             jump,
-            pan,
             // Substepped TGS-Soft rigid solve: 16 substeps/frame (phys_sub = gravity + contact-count + 2 soft
             // velocity iterations + integrate). Rigidity comes from the small step + the device's soft-constraint
             // velocity bias (no position pass), so stacks settle solid instead of springing. See rigid.arche.
@@ -1474,7 +1551,7 @@ phys_sub :: func() -> Schedule {
             project_solid,
             project_player,
             project_text,
-            layout,
+            // (`layout` ran up top, before `focus_update` — it needs the camera, which `pan` sets.)
             // Back-to-front. The PARALLAX layers (hills, clouds/bushes, buildings) all go first — they are
             // background, and because they parallax they SLIDE across the world as the camera moves, so any
             // of them can drift over the sandbox; they must be underneath it. Then the sandbox's backdrop,
