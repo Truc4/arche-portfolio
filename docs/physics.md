@@ -99,6 +99,15 @@ collide with.
   each needs a jump. That is what makes the jump load-bearing rather than decorative.
 - **Exit wall** is 120px wide so you can actually land on top of it; a 20px lip would be unlandable.
 
+### Reset
+
+Every dynamic body carries `home` / `hrot` — the position and orientation it was seeded with. The RESET button
+in the sandbox panel restores them and zeroes velocity and spin.
+
+They are columns rather than a re-run of `seed_arena` because arche has no conditional schedule combinator: a
+seed system assigns whole pool columns from array literals, which cannot be done from inside a `map` body. The
+spawn state has to live in the data.
+
 ### The escape net
 
 `confine_box` / `confine_ball` are a **last resort**, not a boundary — the static walls do all real collision.

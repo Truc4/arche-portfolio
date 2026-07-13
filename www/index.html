@@ -7,8 +7,12 @@
   <style>
     html, body { margin: 0; height: 100%; background: #12131c; overflow: clip; }
     #app { position: relative; width: 100vw; height: 100vh; overflow: clip; }
-    #screen { display: block; width: 100vw; height: 100vh; }
 
+    #screen  { display: block; position: absolute; inset: 0; width: 100vw; height: 100vh; z-index: 0; }
+    #gfx-fg  { display: block; position: absolute; inset: 0; width: 100vw; height: 100vh; z-index: 3;
+               pointer-events: none; }
+
+    #text-layer { z-index: 1; }
     #text-layer span { pointer-events: none !important; }
 
     #ui-button-1, #ui-button-2, #ui-button-3 {

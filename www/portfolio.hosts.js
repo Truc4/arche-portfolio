@@ -30,6 +30,21 @@
       gl_FragColor = vec4(t.b, t.g, t.r, 1.0);
     }`;
 
+  // The FOREGROUND surface's shader. Same swizzle, but pure black is TRANSPARENT rather than opaque, so the
+  // layer composites over the DOM instead of hiding it. The framebuffer int carries no alpha channel (it is
+  // 0x00RRGGBB — the high byte is always 0), so "was this pixel drawn?" has to be keyed off the colour, and
+  // black is the sentinel `split` clears to. Nothing in a scene is usually pure #000000; if a driver needs it,
+  // one unit off (#010101) is indistinguishable and opaque.
+  const FS_KEY = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform sampler2D u_tex;
+    void main() {
+      vec4 t = texture2D(u_tex, v_uv);
+      float lit = step(0.5 / 255.0, max(t.r, max(t.g, t.b)));
+      gl_FragColor = vec4(t.b * lit, t.g * lit, t.r * lit, lit);
+    }`;
+
   function compile(gl, type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -51,16 +66,42 @@
       if (!c) c = host.querySelector && host.querySelector("canvas");
       if (!c) { c = document.createElement("canvas"); host.appendChild(c); }
       this.canvas = c;
-      // preserveDrawingBuffer keeps the last frame readable via gl.readPixels (the e2e reads it); alpha:false
-      // + no depth/antialias is the cheapest surface for a 2D blit.
-      this.gl = c.getContext("webgl", {
-        preserveDrawingBuffer: true, alpha: false, antialias: false, depth: false, stencil: false,
-      });
-      if (!this.gl) throw new Error("WebGL is not available");
+      // TWO SURFACES. The background canvas sits under the host's DOM; the foreground one sits over it, and is
+      // transparent wherever the driver drew nothing. That sandwich is the whole point — see gfx.arche's
+      // `split`. A driver that never calls `split` only ever touches the background one, and the foreground
+      // canvas stays empty and invisible.
+      //
+      // preserveDrawingBuffer keeps the last frame readable via gl.readPixels (the e2e reads it); no
+      // depth/antialias is the cheapest surface for a 2D blit.
+      const mkSurface = (canvas, alpha) => {
+        const gl = canvas.getContext("webgl", {
+          preserveDrawingBuffer: true, alpha: alpha, premultipliedAlpha: false,
+          antialias: false, depth: false, stencil: false,
+        });
+        if (!gl) throw new Error("WebGL is not available");
+        return { canvas: canvas, gl: gl, tex: null, texW: 0, texH: 0, alpha: alpha };
+      };
+      this.bg = mkSurface(c, false);
+      // The foreground canvas mirrors the background one's geometry exactly and never takes input — pointer
+      // events must fall THROUGH it to the DOM and the background canvas beneath, or it would swallow every
+      // click in the world.
+      //
+      // z-index 3 leaves room for the host's DOM to stack UNDERNEATH it in a deliberate order (a driver's
+      // scenery text at 1, its background panels at 2), which is the whole point of the split: those layers
+      // must be occluded by the world's foreground, and DOM over a single canvas never can be.
+      let fc = document.getElementById("gfx-fg");
+      if (!fc) {
+        fc = document.createElement("canvas");
+        fc.id = "gfx-fg";
+        fc.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3;";
+        (c.parentNode || host).appendChild(fc);
+      }
+      this.fg = mkSurface(fc, true);
+      if (c.style) { c.style.position = c.style.position || "absolute"; c.style.zIndex = "0"; }
+      this.cur = this.bg; // the surface the next present lands on; `split` flips it
       this.w = 0; this.h = 0; this.renderH = 0;
-      this.texW = 0; this.texH = 0;
       this.handle = 1n; // opaque window handle: arche `window` lowers to i64 → crosses as BigInt
-      this.tex = null; this.frames = 0;
+      this.frames = 0;
       this.keys = { left: false, right: false, up: false, down: false }; // held state, read by gfx_be_axis_x/y
       this.keyQueue = [];                          // discrete presses, drained by gfx_be_key
       // Named-key → code map; MUST match gfx_x11.c's XLookupString bytes + GFX_KEY_* sentinels.
@@ -201,17 +242,18 @@
         let w = Math.round(self.renderH * window.innerWidth / ch);
         if (w < 1) w = 1;
         if (w > MAXW) w = MAXW;
-        if (w === self.w && self.canvas.height === self.renderH) return;
+        if (w === self.w && self.bg.canvas.height === self.renderH) return;
         self.w = w; self.h = self.renderH;
-        self.canvas.width = w; self.canvas.height = self.renderH;
+        // Both surfaces must stay identical, or the two halves of the frame would not line up.
+        for (const su of [self.bg, self.fg]) { su.canvas.width = w; su.canvas.height = self.renderH; }
       };
 
       // Build the shader program, fullscreen-quad buffer, and framebuffer texture. Once per open.
-      const initGL = (w, h) => {
-        const gl = self.gl;
+      const initGL = (su, w, h) => {
+        const gl = su.gl;
         const prog = gl.createProgram();
         gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VS));
-        gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FS));
+        gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, su.alpha ? FS_KEY : FS));
         gl.linkProgram(prog);
         if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
           throw new Error("gfx program link failed: " + gl.getProgramInfoLog(prog));
@@ -224,9 +266,9 @@
         gl.enableVertexAttribArray(loc);
         gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
         gl.uniform1i(gl.getUniformLocation(prog, "u_tex"), 0);
-        self.tex = gl.createTexture();
+        su.tex = gl.createTexture();
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, self.tex);
+        gl.bindTexture(gl.TEXTURE_2D, su.tex);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -238,17 +280,18 @@
       // Upload the live w×h region straight from wasm memory and draw it. Recompute the byte view each call:
       // wasm memory can grow and detach its ArrayBuffer, so read rt.memory() lazily. Realloc the texture on
       // resize, else refill in place. No per-pixel JS — the GPU does the swizzle.
-      const present = (pxPtr, w, h) => {
-        const gl = self.gl;
+      const present = (su, pxPtr, w, h) => {
+        const gl = su.gl;
         const bytes = new Uint8Array(rt.memory().buffer, pxPtr, w * h * 4);
-        gl.bindTexture(gl.TEXTURE_2D, self.tex);
-        if (w !== self.texW || h !== self.texH) {
+        gl.bindTexture(gl.TEXTURE_2D, su.tex);
+        if (w !== su.texW || h !== su.texH) {
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
           gl.viewport(0, 0, w, h);
-          self.texW = w; self.texH = h;
+          su.texW = w; su.texH = h;
         } else {
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
         }
+        if (su.alpha) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       };
 
@@ -263,13 +306,15 @@
           self.renderH = h;
           rt.renderH = h; // share the render-height scale reference with other hosts (editor/screen place seams)
           sizeToWindow();
-          initGL(self.w, self.h);
+          initGL(self.bg, self.w, self.h);
+          initGL(self.fg, self.w, self.h);
           return self.handle;
         },
         gfx_be_w() { return self.w; },
         gfx_be_h() { return self.h; },
         gfx_be_present(_win, pxPtr, w, h) {
-          present(pxPtr, w, h);
+          present(self.cur, pxPtr, w, h);
+          self.cur = self.bg; // next frame starts on the background surface again
           self.frames++;
           if (self.frames === 1) self.canvas.dataset.status = "live"; // first painted frame (e2e signal)
         },
@@ -284,6 +329,14 @@
         // Is this a TOUCH device? `pointer: coarse` is the standard test — it asks about the primary input's
         // precision, not the screen size, so a narrow desktop window stays "fine" and a landscape phone stays
         // "coarse". A driver uses it to show on-screen controls; native backends report 0 (they have a mouse).
+        // Everything so far belongs to the BACKGROUND: present it, then wipe the framebuffer to the
+        // transparent sentinel (black) so the rest of the frame composites over the DOM rather than hiding it.
+        // The zeroing is the only per-pixel work the host does, and it is a plain fill.
+        gfx_be_split(_win, pxPtr, w, h) {
+          present(self.bg, pxPtr, w, h);
+          new Uint8Array(rt.memory().buffer, pxPtr, w * h * 4).fill(0);
+          self.cur = self.fg;
+        },
         gfx_be_coarse_pointer() {
           if (typeof matchMedia !== "function") return 0;
           return matchMedia("(pointer: coarse)").matches ? 1 : 0;
@@ -400,44 +453,98 @@
   (globalThis.archeHosts ??= []).push({
     bind(rt) {
       this.dec = new TextDecoder();
-      let f = document.getElementById("ui-panel");
-      if (!f) {
-        f = document.createElement("div");
-        f.id = "ui-panel";
-        // No flexbox/padding: children are absolutely positioned from the driver's projected rects (the same
-        // `layout` the native window backend reads), so native + browser lay out identically.
-        f.style.cssText = "position:absolute;z-index:5;box-sizing:border-box;background:#0b0e14;" +
-          "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
-        const t = document.createElement("div");
-        t.id = "ui-panel-title";
-        t.style.cssText = "position:absolute;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
-          "letter-spacing:0.08em;color:#cdd6f4;white-space:nowrap;";
-        f.appendChild(t);
-        (rt.root || document.body).appendChild(f);
-      }
-      this.frame = f;
+      // ONE REAL <div> PER `bid`. This used to be a hardcoded singleton (getElementById("ui-panel")), so a
+      // driver with two Panel rows saw the second silently reposition the first.
+      this.panels = new Map();
     },
 
     seams(rt) {
       const self = this;
+
+      const get = (bid, layer) => {
+        let f = self.panels.get(bid);
+        if (f) return f;
+        // bid 0 keeps the id "ui-panel": the editor / output hosts reparent themselves into it BY THAT ID, so
+        // it is the one panel that hosts children. Every other panel is chrome.
+        const id = bid === 0 ? "ui-panel" : "ui-panel-" + bid;
+        let el = document.getElementById(id);
+        if (!el) {
+          el = document.createElement("div");
+          el.id = id;
+          // No flexbox/padding: children are absolutely positioned from the driver's projected rects (the same
+          // `layout` the native window backend reads), so native + browser lay out identically.
+          //
+          // The z-index STRADDLES the two gfx canvases (see gfx.arche's `split`). A background panel gets 1 —
+          // above the background canvas, but BELOW the transparent foreground one, so the world's bodies draw
+          // over it. A foreground panel gets 5, above both. That is the whole trick: DOM always paints above a
+          // canvas, so the only way a DOM panel can sit behind the world is for the world to have a second
+          // canvas on top.
+          //
+          // A background panel is scenery, so it must not eat pointer events either — a click on it has to fall
+          // through to the world underneath it.
+          const isBg = layer === 0;
+          el.style.cssText = "position:absolute;box-sizing:border-box;background:#0b0e14;" +
+            "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;" +
+            "z-index:" + (isBg ? 2 : 5) + ";" + (isBg ? "pointer-events:none;" : "");
+          const t = document.createElement("div");
+          t.id = id + "-title";
+          t.style.cssText = "position:absolute;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
+            "letter-spacing:0.08em;color:#cdd6f4;white-space:nowrap;";
+          el.appendChild(t);
+          const sb = document.createElement("div");
+          sb.id = id + "-sub";
+          sb.style.cssText = "position:absolute;font:400 0.9em/1 ui-sans-serif,system-ui,sans-serif;" +
+            "letter-spacing:0.06em;color:#9298cc;white-space:nowrap;";
+          el.appendChild(sb);
+          (rt.root || document.body).appendChild(el);
+        }
+        f = {
+          el: el,
+          title: document.getElementById(id + "-title"),
+          sub: document.getElementById(id + "-sub"),
+        };
+        self.panels.set(bid, f);
+        return f;
+      };
+
       return {
-        panel_be_render(x, y, w, h, ptr, n) {
-          const s = window.innerHeight / (rt.renderH || 1080), f = self.frame;
+        panel_be_render(bid, layer, pass, x, y, w, h, ptr, n) {
+          // Not our pass: leave this panel entirely alone. Both passes see every row, so touching a panel that
+          // belongs to the other one would undo whatever it just did.
+          if (layer !== pass) return;
+          const f = get(bid, layer);
+          // A zero-size rect is the DRIVER saying "not now" — hide it. (The button device uses the same rule.)
+          if (w <= 0 || h <= 0) { f.el.style.display = "none"; return; }
+          f.el.style.display = "";
+          const s = window.innerHeight / (rt.renderH || 1080);
           // Publish the panel origin + scale so each element host can position itself relative to the panel.
-          // panel.render runs before the element renders each frame, so these are fresh. (18 = ui.PAD.)
-          rt._uiScale = s; rt._uiPanelX = x; rt._uiPanelY = y;
-          f.style.left = (x * s) + "px";
-          f.style.top = (y * s) + "px";
-          f.style.width = (w * s) + "px";
-          f.style.height = (h * s) + "px";
-          f.style.fontSize = (20 * s) + "px";
+          // ONLY the child-hosting panel (bid 0) may do this — a decorative one would drag the editor across the
+          // world with it. (18 = ui.PAD.)
+          if (bid === 0) { rt._uiScale = s; rt._uiPanelX = x; rt._uiPanelY = y; }
+          f.el.style.left = (x * s) + "px";
+          f.el.style.top = (y * s) + "px";
+          f.el.style.width = (w * s) + "px";
+          f.el.style.height = (h * s) + "px";
+          f.el.style.fontSize = (20 * s) + "px";
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
-          const tt = document.getElementById("ui-panel-title");
-          if (tt) {
-            if (tt.textContent !== t) tt.textContent = t;
-            tt.style.left = (18 * s) + "px";
-            tt.style.top = (18 * s) + "px";
+          if (f.title) {
+            if (f.title.textContent !== t) f.title.textContent = t;
+            f.title.style.left = (18 * s) + "px";
+            f.title.style.top = (18 * s) + "px";
           }
+          f.scale = s;
+        },
+        panel_be_sub(bid, layer, pass, ptr, n) {
+          if (layer !== pass) return;
+          const f = self.panels.get(bid);
+          if (!f || !f.sub) return;
+          const t = n > 0 ? self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n)) : "";
+          if (f.sub.textContent !== t) f.sub.textContent = t;
+          const s = f.scale || 1;
+          // Under the title RULE (PAD + TITLE_H), so it reads as a caption on the panel rather than a second
+          // title. The framebuffer backend places it at exactly the same offset.
+          f.sub.style.left = (18 * s) + "px";
+          f.sub.style.top = ((18 + 34 + 12) * s) + "px";
         },
       };
     },
@@ -472,8 +579,6 @@
       const self = this;
       return {
         textedit_be_open(ptr, n) {
-          const f = document.getElementById("ui-panel");
-          if (f && self.ta.parentNode !== f) f.appendChild(self.ta);
           if (!self.ta.value) {
             const mem = new Uint8Array(rt.memory().buffer, ptr, n);
             let end = 0;
@@ -495,12 +600,18 @@
           new Uint8Array(mem.buffer)[bufPtr + k] = 0;
         },
         textedit_be_poll_run() { const f = self.runPending; self.runPending = false; return f ? 1 : 0; },
-        // Position the <textarea> from the driver's projected rect (render px), relative to the panel origin.
+        // The driver's rect is already in SCREEN space, so place it absolutely in the app root — do NOT reparent
+        // into the panel div and subtract the panel's origin. That coupling made the element depend on the panel
+        // existing FIRST, and the panel is now created lazily on its first render, which happens after `open`
+        // runs at boot: the element never found it, stayed a child of the root, and had panel-relative
+        // coordinates applied absolutely — so it sat glued to the screen instead of scrolling with the world.
+        // z-index 6 keeps it above the foreground panel (5) it visually sits in.
         textedit_be_place(x, y, w, h) {
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
           const ta = self.ta;
-          ta.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
-          ta.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          ta.style.zIndex = "6";
+          ta.style.left = (x * s) + "px";
+          ta.style.top = (y * s) + "px";
           ta.style.width = (w * s) + "px";
           ta.style.height = (h * s) + "px";
         },
@@ -530,13 +641,18 @@
       const self = this;
       return {
         textview_be_render(ptr, n, x, y, w, h) {
-          const f = document.getElementById("ui-panel");
-          if (f && self.el.parentNode !== f) f.appendChild(self.el);
+          // The driver's rect is already in SCREEN space, so place it absolutely in the app root — do NOT reparent
+          // into the panel div and subtract the panel's origin. That coupling made the element depend on the panel
+          // existing FIRST, and the panel is now created lazily on its first render, which happens after `open`
+          // runs at boot: the element never found it, stayed a child of the root, and had panel-relative
+          // coordinates applied absolutely — so it sat glued to the screen instead of scrolling with the world.
+          // z-index 6 keeps it above the foreground panel (5) it visually sits in.
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           if (self.el.textContent !== t) self.el.textContent = t;
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
-          self.el.style.left = ((x - (rt._uiPanelX || 0)) * s) + "px";
-          self.el.style.top = ((y - (rt._uiPanelY || 0)) * s) + "px";
+          self.el.style.zIndex = "6";
+          self.el.style.left = (x * s) + "px";
+          self.el.style.top = (y * s) + "px";
           self.el.style.width = (w * s) + "px";
           self.el.style.height = (h * s) + "px";
         },

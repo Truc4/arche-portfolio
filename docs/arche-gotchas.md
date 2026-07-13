@@ -20,6 +20,13 @@ column and **broadcast** the singleton's other columns onto every matching row. 
 The `Focus`/`Touch` columns are also deliberately **plain, non-datasheet** ints, which keeps them out of the
 bug's blast radius entirely.
 
+The UI pools have the same problem, and it is **latent until a neighbouring pool grows**. `[1]Editor` was fine
+next to `[1]Panel`; the moment `Panel` became `[4]` (two panels + headroom), `textedit`'s `query { source, len }`
+started matching Panel rows through the shared `len` column and `source` failed to resolve — surfacing as an
+unrelated-looking LLVM type error inside `textedit_be_text`. `Editor` and `Output` are `[2]` for that reason.
+
+**If you widen a UI pool, widen its `[1]` neighbours too.**
+
 ## Negative constants do not exist
 
 ```arche

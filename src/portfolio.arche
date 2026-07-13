@@ -25,10 +25,6 @@ JUMP        :: 13.0;
 KEY_UP      :: 1002;
 FOCUS_WORLD :: 0;
 FOCUS_EDIT  :: 1;
-SECT_BORDER :: 0x232838;
-SECT_BG     :: 0x0b0e14;
-SECT_TITLE  :: 0xcdd6f4;
-SECT_TITLE_H :: 80;
 GRAV        :: 0.4;
 GDT         :: 0.025;
 PHALF       :: 51.0;
@@ -99,6 +95,8 @@ qsy    :: int;
 qr     :: int;
 qcol   :: int;
 sflag  :: int;
+home(x, y) :: float;
+hrot(x, y) :: float;
 ssx    :: int;
 ssy    :: int;
 shw    :: int;
@@ -113,14 +111,13 @@ kh     :: int;
 kcol   :: int;
 ksx    :: int;
 ksy    :: int;
-klay   :: int;
 
-Back  :: arche { pos, kw, kh, kcol, ksx, ksy, klay }
+Back  :: arche { pos, kw, kh, kcol, ksx, ksy }
 Prop  :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill  :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
-Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, bsx, bsy, bhw, bhh, bcol }
-Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, qsx, qsy, qr, qcol }
+Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, home, hrot, bsx, bsy, bhw, bhh, bcol }
+Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, home, hrot, qsx, qsy, qr, qcol }
 Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, sflag, ssx, ssy, shw, shh }
 Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup }
 Focus       :: arche { fown, fwas }
@@ -129,12 +126,12 @@ Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
-[4]Back(2);
+[4]Back(1);
 [12]Prop(6);
 [6]Hill(3);
 [8]Round(6);
-[8]Box(6);
-[6]Ball(4);
+[16]Box(12);
+[12]Ball(8);
 [16]Solid(7);
 [4]RBody;
 [2]Player(1);
@@ -153,10 +150,18 @@ PANE_H   :: 360;
 BTN_W    :: 200;
 BTN_H    :: 76;
 
+PANEL_PLAY :: 0;
+PANEL_SAND :: 1;
+SAND_WX   :: 1880.0;
+SAND_WY   :: 640.0;
+SAND_W    :: 1840;
+SAND_H    :: 510;
+
 BTN_RUN   :: 0;
 BTN_LEFT  :: 1;
 BTN_RIGHT :: 2;
 BTN_JUMP  :: 3;
+BTN_RESET :: 4;
 PAD_VMIN  :: 18;
 PAD_GAPV  :: 2;
 PAD_BOTV  :: 5;
@@ -167,7 +172,7 @@ ED_FG  :: 0xcdd6f4;
 OUT_BG :: 0x11151f;
 OUT_FG :: 0xa6e3a1;
 
-Panel  :: arche { screen, size, title :: [16]char, len, view }
+Panel  :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view }
 Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
 Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche {
@@ -183,10 +188,10 @@ Button :: arche {
   mouse_down,
   view,
 }
-[1]Panel ?abort;
-[1]Editor ?abort;
-[1]Output ?abort;
-[4]Button ?abort;
+[4]Panel ?abort;
+[2]Editor ?abort;
+[2]Output ?abort;
+[8]Button ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -201,14 +206,13 @@ seed :: system {
   Prop.rcolor = { S1, S2, S3, S4, S5, S6 };
   Prop.plx    = { 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375 };
 
-  Back.pos.x = { 0.0 - 960.0,   2100.0 };
-  Back.pos.y = { 895.0,         1440.0 };
-  Back.kw    = { 1840,          12000  };
-  Back.kh    = { 510,           600    };
-  Back.kcol  = { SECT_BG,       FLOOR  };
-  Back.klay  = { 0,             1      };
-  Back.ksx   = { 0, 0 };
-  Back.ksy   = { 0, 0 };
+  Back.pos.x = { 2100.0 };
+  Back.pos.y = { 1440.0 };
+  Back.kw    = { 12000 };
+  Back.kh    = { 600 };
+  Back.kcol  = { FLOOR };
+  Back.ksx   = { 0 };
+  Back.ksy   = { 0 };
 
   Hill.hpx  = { 900.0, 2400.0, 3900.0 };
   Hill.hpy  = { 1140.0, 1140.0, 1140.0 };
@@ -257,52 +261,61 @@ seed :: system {
 }
 
 seed_arena :: system {
-  Box.pos.x  = { 0.0 - 1350.0, 0.0 - 1200.0, 0.0 - 1050.0, 0.0 - 900.0, 0.0 - 760.0, 0.0 - 620.0 };
-  Box.pos.y  = { 320.0, 260.0, 360.0, 280.0, 520.0, 560.0 };
-  Box.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.spin.x = { 0.02, -0.03, 0.04, -0.02, 0.03, -0.04 };
-  Box.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.rot.x  = { 1.0, 0.924, 0.707, 0.383, 0.0, 0.831 };
-  Box.rot.y  = { 0.0, 0.383, 0.707, 0.924, 1.0, 0.556 };
-  Box.ext.x  = { 44.0, 36.0, 52.0, 40.0, 48.0, 34.0 };
-  Box.ext.y  = { 44.0, 36.0, 40.0, 40.0, 30.0, 34.0 };
-  Box.mi.x   = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
-  Box.mi.y   = { BINVI, BINVI, BINVI, BINVI, BINVI, BINVI };
-  Box.mat.x  = { BREST, BREST, BREST, BREST, BREST, BREST };
-  Box.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC };
-  Box.dimp.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.dimp.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.dang.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-  Box.bcol   = { BOXA, BOXB, BOXC, BOXA, BOXB, BOXC };
+  Box.pos.x  = { 0.0 - 1630.0, 0.0 - 1630.0, 0.0 - 1630.0, 0.0 - 1420.0, 0.0 - 1420.0, 0.0 - 1420.0, 0.0 - 1210.0, 0.0 - 1210.0, 0.0 - 1000.0, 0.0 - 1000.0, 0.0 - 800.0, 0.0 - 620.0 };
+  Box.pos.y  = { 900.0, 680.0, 460.0, 880.0, 660.0, 440.0, 840.0, 600.0, 860.0, 620.0, 800.0, 760.0 };
+  Box.home.x = { 0.0 - 1630.0, 0.0 - 1630.0, 0.0 - 1630.0, 0.0 - 1420.0, 0.0 - 1420.0, 0.0 - 1420.0, 0.0 - 1210.0, 0.0 - 1210.0, 0.0 - 1000.0, 0.0 - 1000.0, 0.0 - 800.0, 0.0 - 620.0 };
+  Box.home.y = { 900.0, 680.0, 460.0, 880.0, 660.0, 440.0, 840.0, 600.0, 860.0, 620.0, 800.0, 760.0 };
+  Box.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.spin.x = { 0.02, -0.03, 0.04, -0.02, 0.03, -0.04, 0.01, -0.01, 0.03, -0.02, 0.02, -0.03 };
+  Box.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.rot.x  = { 1.000, 0.924, 0.707, 0.383, 0.000, 0.831, 1.000, 0.966, 0.707, 0.500, 0.866, 1.000 };
+  Box.rot.y  = { 0.000, 0.383, 0.707, 0.924, 1.000, 0.556, 0.000, 0.259, 0.707, 0.866, 0.500, 0.000 };
+  Box.hrot.x = { 1.000, 0.924, 0.707, 0.383, 0.000, 0.831, 1.000, 0.966, 0.707, 0.500, 0.866, 1.000 };
+  Box.hrot.y = { 0.000, 0.383, 0.707, 0.924, 1.000, 0.556, 0.000, 0.259, 0.707, 0.866, 0.500, 0.000 };
+  Box.ext.x  = { 44.0, 36.0, 52.0, 40.0, 48.0, 34.0, 42.0, 38.0, 46.0, 32.0, 50.0, 36.0 };
+  Box.ext.y  = { 44.0, 36.0, 40.0, 40.0, 30.0, 34.0, 34.0, 38.0, 30.0, 32.0, 36.0, 36.0 };
+  Box.mi.x   = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Box.mi.y   = { BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI };
+  Box.mat.x  = { BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST };
+  Box.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC };
+  Box.dimp.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dimp.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dang.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.bcol   = { BOXA, BOXB, BOXC, BOXA, BOXB, BOXC, BOXA, BOXB, BOXC, BOXA, BOXB, BOXC };
 
-  Ball.pos.x  = { 0.0 - 1300.0, 0.0 - 1000.0, 0.0 - 800.0, 0.0 - 580.0 };
-  Ball.pos.y  = { 240.0, 300.0, 220.0, 340.0 };
-  Ball.lvel.x = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.lvel.y = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.spin.x = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.spin.y = { 1.0, 1.0, 1.0, 1.0 };
-  Ball.rot.x  = { 1.0, 1.0, 1.0, 1.0 };
-  Ball.rot.y  = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.ext.x  = { 38.0, 30.0, 44.0, 26.0 };
-  Ball.ext.y  = { 38.0, 30.0, 44.0, 26.0 };
-  Ball.mi.x   = { 1.0, 1.0, 1.0, 1.0 };
-  Ball.mi.y   = { BINVI, BINVI, BINVI, BINVI };
-  Ball.mat.x  = { BREST, BREST, BREST, BREST };
-  Ball.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC };
-  Ball.dimp.x = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.dimp.y = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.dang.x = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.dang.y = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.cor.x  = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.cor.y  = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.sup.x  = { 0.0, 0.0, 0.0, 0.0 };
-  Ball.sup.y  = { 0.0, 0.0, 0.0, 0.0 };
+  Ball.pos.x  = { 0.0 - 1520.0, 0.0 - 1330.0, 0.0 - 1120.0, 0.0 - 930.0, 0.0 - 740.0, 0.0 - 1450.0, 0.0 - 1050.0, 0.0 - 860.0 };
+  Ball.pos.y  = { 300.0, 250.0, 340.0, 270.0, 310.0, 180.0, 220.0, 200.0 };
+  Ball.home.x = { 0.0 - 1520.0, 0.0 - 1330.0, 0.0 - 1120.0, 0.0 - 930.0, 0.0 - 740.0, 0.0 - 1450.0, 0.0 - 1050.0, 0.0 - 860.0 };
+  Ball.home.y = { 300.0, 250.0, 340.0, 270.0, 310.0, 180.0, 220.0, 200.0 };
+  Ball.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.spin.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.spin.y = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Ball.rot.x  = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Ball.rot.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.hrot.x = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Ball.hrot.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.ext.x  = { 38.0, 30.0, 44.0, 26.0, 34.0, 28.0, 40.0, 32.0 };
+  Ball.ext.y  = { 38.0, 30.0, 44.0, 26.0, 34.0, 28.0, 40.0, 32.0 };
+  Ball.mi.x   = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+  Ball.mi.y   = { BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI, BINVI };
+  Ball.mat.x  = { BREST, BREST, BREST, BREST, BREST, BREST, BREST, BREST };
+  Ball.mat.y  = { BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC, BFRIC };
+  Ball.dimp.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.dimp.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.dang.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.dang.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.cor.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.cor.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.qcol   = { BALLA, BALLB, BALLA, BALLB, BALLA, BALLB, BALLA, BALLB };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB };
 
   Solid.pos.x  = { 2100.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
@@ -513,56 +526,14 @@ draw_rbox :: system (query { framebuffer })(framebuffer) eff {
   };
 }
 
-draw_back :: system (query { framebuffer })(framebuffer) eff {
-  map (query { handle }) eff {
-    gfx.dims(handle)(vw:, vh:);
-    map (query { ksx, ksy, kw, kh, kcol, klay }) eff {
-      live := select(klay == 0, 1, 0);
-      bw := kw * live;
-      bh := kh * live;
-      y0 := ksy;
-      y1 := ksy + bh;
-      x0 := ksx;
-      x1 := ksx + bw;
-      if (y0 < 0) {
-        y0 = 0;
-      }
-      if (y1 > vh) {
-        y1 = vh;
-      }
-      if (x0 < 0) {
-        x0 = 0;
-      }
-      if (x1 > vw) {
-        x1 = vw;
-      }
-      yy := y0;
-      for (; yy < y1;) {
-        xx := x0;
-        for (; xx < x1;) {
-          inx := select(xx > ksx + 1 && xx < ksx + bw - 2, 1, 0);
-          iny := select(yy > ksy + 1 && yy < ksy + bh - 2, 1, 0);
-          rule := select(yy == ksy + SECT_TITLE_H, 1, 0);
-          inner := select(inx == 1 && iny == 1, 1, 0);
-          body := select(inner == 1, kcol, SECT_BORDER);
-          framebuffer[yy * vw + xx] = select(rule == 1 && inx == 1, SECT_BORDER, body);
-          xx = xx + 1;
-        }
-        yy = yy + 1;
-      }
-    };
-  };
-}
-
 draw_ground :: system (query { framebuffer })(framebuffer) eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
-    map (query { ksx, ksy, kw, kh, kcol, klay }) eff {
-      live := select(klay == 1, 1, 0);
+    map (query { ksx, ksy, kw, kh, kcol }) eff {
       y0 := ksy;
-      y1 := ksy + kh * live;
+      y1 := ksy + kh;
       x0 := ksx;
-      x1 := ksx + kw * live;
+      x1 := ksx + kw;
       if (y0 < 0) {
         y0 = 0;
       }
@@ -1078,32 +1049,6 @@ seed_text :: system eff {
   )(_:, _ok:);
   insert(
     Sign {
-      twx  : 0.0 - 960.0,
-      twy  : 672.0,
-      tplx : 1.0,
-      tstr : "RIGID BODY SANDBOX",
-      tlen : 18,
-      tsz  : 24,
-      tcol : SECT_TITLE,
-      tx   : 0,
-      ty   : 0,
-    },
-  )(_:, _ok:);
-  insert(
-    Sign {
-      twx  : 0.0 - 960.0,
-      twy  : 760.0,
-      tplx : 1.0,
-      tstr : "ARROWS TO WALK - UP TO JUMP",
-      tlen : 27,
-      tsz  : 24,
-      tcol : CLOUD,
-      tx   : 0,
-      ty   : 0,
-    },
-  )(_:, _ok:);
-  insert(
-    Sign {
       twx  : 2760.0,
       twy  : 700.0,
       tplx : 0.625,
@@ -1193,7 +1138,23 @@ done :: map (Closed) eff {
 }
 
 seed_playground :: system eff {
-  insert(Panel { screen: (0, 0), size: (0, 0), title: "PLAYGROUND", len: 10, view: (0, 0) })(
+  insert(Panel {
+    bid: PANEL_PLAY, layer: 1,
+    screen: (0, 0), size: (0, 0),
+    title: "PLAYGROUND", len: 10,
+    sub: "WRITE ARCHE - CTRL+ENTER TO RUN", sublen: 31,
+    view: (0, 0),
+  })(
+    _   : ,
+    _ok : ,
+  );
+  insert(Panel {
+    bid: PANEL_SAND, layer: 0,
+    screen: (0, 0), size: (0, 0),
+    title: "RIGID BODY SANDBOX", len: 18,
+    sub: "ARROWS TO MOVE - UP TO JUMP", sublen: 27,
+    view: (0, 0),
+  })(
     _   : ,
     _ok : ,
   );
@@ -1269,6 +1230,21 @@ seed_playground :: system eff {
   )(_:, _ok:);
   insert(
     Button {
+      bid        : BTN_RESET,
+      screen     : (0, 0),
+      size       : (0, 0),
+      label      : "RESET",
+      len        : 5,
+      clicked    : 0,
+      held       : 0,
+      wasdown    : 0,
+      mouse      : (0, 0),
+      mouse_down : 0,
+      view       : (0, 0),
+    },
+  )(_:, _ok:);
+  insert(
+    Button {
       bid        : BTN_JUMP,
       screen     : (0, 0),
       size       : (0, 0),
@@ -1317,11 +1293,20 @@ layout :: system eff {
       oy   := select(coarse == 1, ui.next(cy0, eh), cy0);
       cyb  := select(coarse == 1, ui.next(ui.next(cy0, eh), eh), ui.next(cy0, PANE_H));
       ph   := cyb + BTN_H + ui.PAD - py;
-      map (query { title, screen, size })(screen, size) eff {
-        screen.x = px;
-        screen.y = py;
-        size.w   = pw;
-        size.h   = ph;
+      ss := camera.to_screen(
+        vec.mk(0.0 - SAND_WX, SAND_WY),
+        eye,
+        zoom,
+        vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+      );
+      sx := i32(ss.x);
+      sy := i32(ss.y);
+      map (query { bid, title, screen, size })(screen, size) eff {
+        sand := select(bid == PANEL_SAND, 1, 0);
+        screen.x = select(sand == 1, sx, px);
+        screen.y = select(sand == 1, sy, py);
+        size.w   = select(sand == 1, SAND_W, pw);
+        size.h   = select(sand == 1, SAND_H, ph);
       };
       map (query { source, screen, size })(screen, size) eff {
         screen.x = cx;
@@ -1344,10 +1329,16 @@ layout :: system eff {
         lx := sidex;
         rx := sidex + pad + gap;
         jx := vw - pad - sidex;
-        bx := select(bid == BTN_LEFT, lx, select(bid == BTN_RIGHT, rx, select(bid == BTN_JUMP, jx, cx)));
-        by := select(bid == BTN_RUN, cyb, pady);
-        pw2 := select(bid == BTN_RUN, BTN_W, pad * coarse);
-        ph2 := select(bid == BTN_RUN, BTN_H, pad * coarse);
+        rsx := sx + SAND_W - BTN_W - ui.PAD;
+        rsy := sy + ui.PAD;
+        bx := select(bid == BTN_LEFT, lx,
+              select(bid == BTN_RIGHT, rx,
+              select(bid == BTN_JUMP, jx,
+              select(bid == BTN_RESET, rsx, cx))));
+        by := select(bid == BTN_RUN, cyb, select(bid == BTN_RESET, rsy, pady));
+        pad2 := pad * coarse;
+        pw2 := select(bid == BTN_RUN, BTN_W, select(bid == BTN_RESET, BTN_W, pad2));
+        ph2 := select(bid == BTN_RUN, BTN_H, select(bid == BTN_RESET, BTN_H, pad2));
         screen.x = bx;
         screen.y = by;
         size.w   = pw2;
@@ -1378,6 +1369,22 @@ ui_input :: system eff {
       mouse.y    = gmy;
       mouse_down = gmd;
     };
+  };
+}
+
+reset_arena :: system eff {
+  map (query { bid, clicked }) eff {
+    if (bid == BTN_RESET && clicked == 1) {
+      map (query { pos, lvel, spin, rot, home, hrot })(pos, lvel, spin, rot) eff {
+        pos.x = home.x;
+        pos.y = home.y;
+        lvel.x = 0.0;
+        lvel.y = 0.0;
+        spin.x = 0.0;
+        rot.x = hrot.x;
+        rot.y = hrot.y;
+      };
+    }
   };
 }
 
@@ -1486,8 +1493,9 @@ phys_sub :: func() -> Schedule {
             draw_hills,
             draw_round,
             gfx.rect,
-            draw_back,
+            panel.render_bg,
             text.render,
+            gfx.split,
             draw_solid,
             draw_ground,
             draw_rbox,
@@ -1498,6 +1506,7 @@ phys_sub :: func() -> Schedule {
             textedit.poll_run,
             button.poll,
             run_button,
+            reset_arena,
             run_it,
             panel.render,
             textedit.render,
