@@ -7,6 +7,7 @@ SPEED        :: 9.0;
 SCROLL_SPEED :: 1.0;
 CAM_MARGIN  :: 0.3;
 CAM_MARGIN_M :: 0.42;
+CAM_EDGE    :: 6.0;
 CAM_PUSH    :: 0.2;
 CAM_LERP    :: 0.12;
 EYE_Y0      :: 720.0;
@@ -175,6 +176,7 @@ Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, 
 Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche {
   bid,
+  layer,
   screen,
   size,
   label :: [8]char,
@@ -652,16 +654,20 @@ focus_claim :: system eff {
 focus_release :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
-    gfx.coarse_pointer(handle)(coarse:);
-    map (query { ppx }) eff {
-      map (query { eye, zoom }) eff {
-        map (query { fcam })(fcam) eff {
-          sx := (ppx - eye.x) * zoom + float(vw) * 0.5;
-          marg := select(coarse == 1, CAM_MARGIN_M, CAM_MARGIN);
-          lo := float(vw) * marg;
-          hi := float(vw) - lo;
-          out := select(sx < lo, 1, select(sx > hi, 1, 0));
-          fcam = select(out == 1, 0, fcam);
+    gfx.axis_x(handle)(dx:);
+    map (query { tax }) eff {
+      map (query { ppx }) eff {
+        map (query { eye, zoom }) eff {
+          map (query { fcam })(fcam) eff {
+            sx := (ppx - eye.x) * zoom + float(vw) * 0.5;
+            lo := float(PW) + CAM_EDGE;
+            hi := float(vw) - float(PW) - CAM_EDGE;
+            adx := select(dx != 0, dx, tax);
+            atlo := select(sx < lo && adx < 0, 1, 0);
+            athi := select(sx > hi && adx > 0, 1, 0);
+            out := select(atlo == 1, 1, athi);
+            fcam = select(out == 1, 0, fcam);
+          };
         };
       };
     };
@@ -1181,6 +1187,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RUN,
+      layer      : 1,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "RUN",
@@ -1196,6 +1203,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_LEFT,
+      layer      : 1,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -1211,6 +1219,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RIGHT,
+      layer      : 1,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -1226,6 +1235,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RESET,
+      layer      : 0,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "RESET",
@@ -1241,6 +1251,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_JUMP,
+      layer      : 1,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -1490,6 +1501,7 @@ phys_sub :: func() -> Schedule {
             draw_round,
             gfx.rect,
             panel.render_bg,
+            button.render_bg,
             text.render,
             gfx.split,
             draw_solid,

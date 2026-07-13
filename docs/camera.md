@@ -45,8 +45,16 @@ settles back to `EYE_Y0`. The panel's world rect comes from its **actual `layout
 They are separate because the sandbox needs to pull the camera **without** taking the arrows — you need those to
 play in it. Clicking the playground takes both; clicking the sandbox takes only the camera.
 
-Any movement input clears `fcam`, so `cam_center` and `cam_push` can never fight: the moment you walk, the camera
-is yours again.
+Movement does **not** clear `fcam` — you can walk around freely with the view held steady on the panel. It is
+released by clicking off the panel, or by walking hard enough to be pushed against the **screen edge**.
+
+Two things make that work:
+
+- **`cam_push` stands down while `fcam` is set**, or it would drag the camera while `cam_center` yanked it back.
+- **The release fires at `clamp_player`'s line** (`PW` = 102px from the viewport edge), not at `CAM_MARGIN`.
+  `clamp_player` pins the body to the viewport, so that clamp line is as far off-screen as the player can ever
+  get — an edge-based release has to key off it. Using `CAM_MARGIN` (30% of the viewport) fired almost
+  immediately, because the sandbox fills most of the screen.
 
 ### Edge detection must not live in the panel loop
 
