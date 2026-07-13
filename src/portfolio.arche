@@ -1,5 +1,5 @@
 #import { gfx camera vec os text ui panel textedit textview button compiler rigid
-          "./render" "./physics" "./camview" "./input" "./playground" }
+          "./render" "./physics" "./camview" "./input" "./playground" "./cards" }
 
 H            :: 1080;
 MAXW         :: 4096;
@@ -14,6 +14,7 @@ CAM_LERP    :: 0.12;
 EYE_Y0      :: 720.0;
 EYE_Y0_M    :: 840.0;
 EYE0         :: 2100.0;
+SIM_ON_X     :: 1000.0;
 PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
 PW           :: 102;
@@ -111,15 +112,19 @@ kh     :: int;
 kcol   :: int;
 ksx    :: int;
 ksy    :: int;
+iwx    :: float;
+iwy    :: float;
+iprog  :: float;
+awake  :: int;
 
 Back  :: arche { pos, kw, kh, kcol, ksx, ksy }
 Prop  :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill  :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
-Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, home, hrot, bsx, bsy, bhw, bhh, bcol }
-Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, home, hrot, qsx, qsy, qr, qcol }
-Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, sflag, ssx, ssy, shw, shh }
-Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup }
+Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake, home, hrot, bsx, bsy, bhw, bhh, bcol }
+Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake, home, hrot, qsx, qsy, qr, qcol }
+Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake, sflag, ssx, ssy, shw, shh }
+Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake }
 Focus       :: arche { fown, fwas, fpress, fcam }
 Touch       :: arche { tax, tjump }
 Window      :: arche { handle, bg, gkey }
@@ -127,7 +132,7 @@ Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
 [4]Back(1);
-[12]Prop(6);
+[30]Prop(6);
 [6]Hill(3);
 [8]Round(6);
 [16]Box(8);
@@ -140,7 +145,7 @@ Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
-[12]Sign ?abort;
+[16]Sign ?abort;
 [1]Closed;
 
 PANEL_WX :: 700.0;
@@ -172,9 +177,33 @@ ED_FG  :: 0xcdd6f4;
 OUT_BG :: 0x11151f;
 OUT_FG :: 0xa6e3a1;
 
+INFO_W     :: 900;
+INFO_H     :: 360;
+INFO_RANGE :: 220.0;
+INFO_LERP  :: 0.18;
+INFO_GAP   :: 40;
+
+POST_COL   :: 0x4b5183;
+BOARD_EDGE :: 0x3f4570;
+BOARD_COL  :: 0x656caa;
+BOARD_TXT  :: 0x12131c;
+
+INFO_P0 :: 2;
+INFO_P1 :: 3;
+INFO_P2 :: 4;
+INFO_P3 :: 5;
+INFO_P4 :: 6;
+INFO_P5 :: 7;
+INFO_B0 :: 1;
+INFO_B1 :: 2;
+INFO_B2 :: 3;
+INFO_B3 :: 4;
+INFO_B4 :: 5;
+INFO_B5 :: 6;
+
 Panel  :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view }
 Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
-Output :: arche { screen, size, output :: [4096]char, len, view, bg, fg }
+Output :: arche { bid, screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche {
   bid,
   layer,
@@ -189,10 +218,14 @@ Button :: arche {
   mouse_down,
   view,
 }
+InfoPanel :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog }
+InfoBody  :: arche { bid, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog }
 [4]Panel ?abort;
 [2]Editor ?abort;
 [2]Output ?abort;
 [8]Button ?abort;
+[6]InfoPanel ?abort;
+[6]InfoBody ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -250,6 +283,7 @@ seed :: system {
   Player.cor.y  = { 0.0 };
   Player.sup.x  = { 0.0 };
   Player.sup.y  = { 0.0 };
+  Player.awake  = { 1 };
 
   Focus.fown = { FOCUS_WORLD };
   Focus.fwas = { 0 };
@@ -290,6 +324,7 @@ seed_arena :: system {
   Box.cor.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.sup.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Box.sup.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Box.awake = { 1, 1, 1, 1, 1, 1, 1, 1 };
   Box.bcol = { BOXA, BOXB, BOXC, BOXA, BOXB, BOXC, BOXA, BOXB };
 
   Ball.pos.x = { 0.0 - 1520.0, 0.0 - 1330.0, 0.0 - 1120.0, 0.0 - 930.0, 0.0 - 740.0 };
@@ -318,6 +353,7 @@ seed_arena :: system {
   Ball.cor.y = { 0.0, 0.0, 0.0, 0.0, 0.0 };
   Ball.sup.x = { 0.0, 0.0, 0.0, 0.0, 0.0 };
   Ball.sup.y = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+  Ball.awake = { 1, 1, 1, 1, 1 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB, BALLA };
 
   Solid.pos.x  = { 2100.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
@@ -343,6 +379,7 @@ seed_arena :: system {
   Solid.sup.x  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.sup.y  = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.sflag  = { 0, 1, 1, 1, 1, 1, 1 };
+  Solid.awake  = { 1, 1, 1, 1, 1, 1, 1 };
   Solid.ssx    = { 0, 0, 0, 0, 0, 0, 0 };
   Solid.ssy    = { 0, 0, 0, 0, 0, 0, 0 };
   Solid.shw    = { 0, 0, 0, 0, 0, 0, 0 };
@@ -506,6 +543,7 @@ seed_playground :: system eff {
   )(_:, _ok:);
   insert(
     Output {
+      bid    : 0,
       screen : (0, 0),
       size   : (0, 0),
       output : "",
@@ -597,6 +635,50 @@ seed_playground :: system eff {
   )(_:, _ok:);
 }
 
+seed_cards :: system eff {
+  insert(Prop { pos: (2400.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos:  (900.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3000.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3600.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4200.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4800.0, 1065.0), rw: 24, rh: 150, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+
+  insert(Prop { pos: (2400.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos:  (900.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3000.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3600.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4200.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4800.0, 945.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+
+  insert(Prop { pos: (2400.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos:  (900.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3000.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (3600.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4200.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (4800.0, 945.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+
+  insert(Sign { twx: 2400.0, twy: 937.0, tplx: 1.0, tstr: "TECH STACK",    tlen: 10, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx:  900.0, twy: 937.0, tplx: 1.0, tstr: "ARCHE + WASM",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 3000.0, twy: 937.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 3600.0, twy: 937.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 4200.0, twy: 937.0, tplx: 1.0, tstr: "THE RENDERER",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 4800.0, twy: 937.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+
+  insert(InfoPanel { bid: INFO_P0, layer: 1, screen: (0,0), size: (0,0), title: "TECH STACK",    len: 10, sub: "what this site is built with",     sublen: 28, view: (0,0), iwx: 2400.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P1, layer: 1, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P2, layer: 1, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: 3000.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 3600.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P4, layer: 1, screen: (0,0), size: (0,0), title: "THE RENDERER",  len: 12, sub: "two canvases, DOM in the middle",  sublen: 31, view: (0,0), iwx: 4200.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P5, layer: 1, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: 4800.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+
+  insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "Arche - a data-oriented systems language\nLLVM - native + wasm32 from one source\nCanvas on the web, X11 + framebuffer native\nSame program, two backends, no JS gameplay.", len: 0, view: (0,0), iwx: 2400.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor below runs that same compiler\nin your browser - edit, hit RUN, see it go.", len: 0, view: (0,0), iwx:  900.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: 3000.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n16 substeps a frame, boxes and circles.\nThe player is a rigid body too - it tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 3600.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B4, screen: (0,0), size: (0,0), output: "Parallax scenery on a back canvas,\nbodies and player on a clear front canvas,\nUI panels as DOM sandwiched between them.\nEvery shape is a hand-written rasterizer.", len: 0, view: (0,0), iwx: 4200.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: 4800.0, iwy: 905.0, iprog: 0.0 })(_:, _ok:);
+}
+
 #run {
   seq(
     {
@@ -605,7 +687,9 @@ seed_playground :: system eff {
       seed_arena,
       seed_text,
       seed_playground,
+      seed_cards,
       measure,
+      measure_cards,
       textedit.open,
       forever(
         seq(
@@ -621,6 +705,7 @@ seed_playground :: system eff {
             focus_claim,
             focus_release,
             focus_sync,
+            sim_awake,
             rigid.supports,
             walk,
             jump,
@@ -632,16 +717,10 @@ seed_playground :: system eff {
             phys_sub(),
             phys_sub(),
             phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
             clamp_player,
             sync_player_ppx,
+            info_open,
+            info_layout,
             ui_input,
             project,
             project_hill,
@@ -674,8 +753,8 @@ seed_playground :: system eff {
             run_it,
             panel.render,
             textedit.render,
-            textview.render,
             button.render,
+            textview.render,
             gfx.present,
             gfx.poll,
             done,

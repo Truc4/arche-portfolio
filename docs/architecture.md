@@ -15,6 +15,9 @@ referenced by bare name and `arche build src/portfolio.arche` follows the import
 - `src/camview.arche` — `pan`, `cam_push`, `cam_center`, `clamp_player`.
 - `src/input.arche` — key drain, virtual pads, and the whole `focus_*` / `ui_input` set.
 - `src/playground.arche` — `layout`, `measure`, the RUN button, `run_it` (the embedded compiler), `done`.
+- `src/cards.arche` — proximity-triggered info cards: `info_open` (ease each card's `iprog` open/shut by the
+  player's distance to its world anchor) and `info_layout` (scale the `InfoPanel` frame + its `InfoBody`
+  textview out of the sign). Data (the `InfoPanel`/`InfoBody` pools + `seed_cards`) lives in the driver.
 
 Each module `#import`s only the devices it calls; the driver's constants and archetypes are visible to all of
 them through the flat merge.
@@ -70,5 +73,6 @@ Constraints worth knowing before you reorder anything:
 
 - `src/portfolio.arche` — the driver (data + schedule); `src/{render,physics,camview,input,playground}.arche` — the logic modules it imports.
 - `../arche/extras/rigid/` — the rigid-body device (solver + collision).
-- `../arche/extras/{gfx,camera,text,ui/*}` — the device library.
+- `../arche/extras/{gfx,camera,text,ui/*}` — the device library. (`ui/textview`'s DOM host is keyed by `bid`
+  so the info cards each get their own element — this repo is that device's only consumer.)
 - `www/index.html` — the page shell, and the CSS skin for the touch pads.
