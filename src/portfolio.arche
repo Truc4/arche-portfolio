@@ -16,10 +16,6 @@ PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
 PW           :: 102;
 
-ARENA_LX    :: 1700.0;
-ARENA_RX    :: 500.0;
-ARENA_TOP   :: 0.0;
-ARENA_FLOOR :: 1140.0;
 WALL_TOP    :: 940.0;
 JUMP        :: 13.0;
 KEY_UP      :: 1002;
@@ -104,6 +100,8 @@ shh    :: int;
 gkey   :: int;
 fown   :: int;
 fwas   :: int;
+fpress :: int;
+fcam   :: int;
 tax    :: int;
 tjump  :: int;
 kw     :: int;
@@ -120,7 +118,7 @@ Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup,
 Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, home, hrot, qsx, qsy, qr, qcol }
 Solid       :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, sflag, ssx, ssy, shw, shh }
 Player      :: arche { ppx, prx, pry, pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup }
-Focus       :: arche { fown, fwas }
+Focus       :: arche { fown, fwas, fpress, fcam }
 Touch       :: arche { tax, tjump }
 Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
@@ -252,6 +250,8 @@ seed :: system {
 
   Focus.fown = { FOCUS_WORLD };
   Focus.fwas = { 0 };
+  Focus.fpress = { 0 };
+  Focus.fcam = { 0 };
   Touch.tax   = { 0 };
   Touch.tjump = { 0 };
 
@@ -355,55 +355,6 @@ rigid_gravity :: map (query { lvel, mi })(lvel) {
   lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
 }
 
-ESC_MARGIN :: 24.0;
-
-esc_pos :: func(p: pos, e: ext, m: mi) -> pos {
-  lox := (0.0 - ARENA_LX) + e.x - ESC_MARGIN;
-  hix := (0.0 - ARENA_RX) - e.x + ESC_MARGIN;
-  loy := ARENA_TOP + e.y - ESC_MARGIN;
-  hiy := ARENA_FLOOR - e.y + ESC_MARGIN;
-  dyn := select(m.x > 0.0, 1.0, 0.0);
-  cx := select(p.x < lox, lox, p.x);
-  cx = select(cx > hix, hix, cx);
-  cy := select(p.y < loy, loy, p.y);
-  cy = select(cy > hiy, hiy, cy);
-  outx := dyn * select(p.x < lox, 1.0, select(p.x > hix, 1.0, 0.0));
-  outy := dyn * select(p.y < loy, 1.0, select(p.y > hiy, 1.0, 0.0));
-  rx := select(outx > 0.5, cx, p.x);
-  ry := select(outy > 0.5, cy, p.y);
-  return (rx, ry);
-}
-
-esc_vel :: func(p: pos, v: lvel, e: ext, m: mi) -> pos {
-  lox := (0.0 - ARENA_LX) + e.x - ESC_MARGIN;
-  hix := (0.0 - ARENA_RX) - e.x + ESC_MARGIN;
-  loy := ARENA_TOP + e.y - ESC_MARGIN;
-  hiy := ARENA_FLOOR - e.y + ESC_MARGIN;
-  dyn := select(m.x > 0.0, 1.0, 0.0);
-  outx := dyn * select(p.x < lox, 1.0, select(p.x > hix, 1.0, 0.0));
-  outy := dyn * select(p.y < loy, 1.0, select(p.y > hiy, 1.0, 0.0));
-  rx := select(outx > 0.5, 0.0, v.x);
-  ry := select(outy > 0.5, 0.0, v.y);
-  return (rx, ry);
-}
-
-confine_box :: map (query { pos, lvel, ext, mi, bsx })(pos, lvel) {
-  np := esc_pos(pos, ext, mi);
-  nv := esc_vel(pos, lvel, ext, mi);
-  pos.x = np.x;
-  pos.y = np.y;
-  lvel.x = nv.x;
-  lvel.y = nv.y;
-}
-
-confine_ball :: map (query { pos, lvel, ext, mi, qsx })(pos, lvel) {
-  np := esc_pos(pos, ext, mi);
-  nv := esc_vel(pos, lvel, ext, mi);
-  pos.x = np.x;
-  pos.y = np.y;
-  lvel.x = nv.x;
-  lvel.y = nv.y;
-}
 
 project_box :: system eff {
   map (query { handle }) eff {
@@ -658,27 +609,67 @@ vinput :: system eff {
   };
 }
 
-focus_update :: system eff {
+focus_input :: system eff {
+  map (query { handle }) eff {
+    gfx.mouse_down(handle)(md:);
+    gfx.text_focus(handle)(tf:);
+    gfx.axis_x(handle)(dx:);
+    map (query { tax, tjump }) eff {
+      map (query { fown, fwas, fpress, fcam })(fown, fwas, fpress, fcam) eff {
+        press := select(md == 1 && fwas == 0, 1, 0);
+        fpress = press;
+        fwas = md;
+        adopt := select(tf == 1, FOCUS_EDIT, fown);
+        base := select(press == 1, FOCUS_WORLD, adopt);
+        pad := select(tax != 0, 1, tjump);
+        moving := select(dx != 0, 1, pad);
+        kb := select(moving == 1, FOCUS_WORLD, base);
+        fown = kb;
+        cleared := select(press == 1, 0, fcam);
+        edit := select(kb == FOCUS_EDIT, PANEL_PLAY + 1, cleared);
+        fcam = edit;
+      };
+    };
+  };
+}
+
+focus_claim :: system eff {
   map (query { handle }) eff {
     gfx.mouse_x(handle)(mx:);
     gfx.mouse_y(handle)(my:);
-    gfx.mouse_down(handle)(md:);
-    gfx.text_focus(handle)(tf:);
-    map (query { tax, tjump }) eff {
-    map (query { title, screen, size }) eff {
-      map (query { fown, fwas })(fown, fwas) eff {
-        press := select(md == 1 && fwas == 0, 1, 0);
+    map (query { bid, title, screen, size }) eff {
+      map (query { fown, fcam, fpress })(fown, fcam) eff {
         inx := select(mx >= screen.x && mx < screen.x + size.w, 1, 0);
         iny := select(my >= screen.y && my < screen.y + size.h, 1, 0);
-        inside := select(inx == 1 && iny == 1, FOCUS_EDIT, FOCUS_WORLD);
-        adopt := select(tf == 1, FOCUS_EDIT, fown);
-        want := select(press == 1, inside, adopt);
-        pad := select(tax != 0, 1, tjump);
-        fown = select(pad == 1, FOCUS_WORLD, want);
-        fwas = md;
+        hit := select(fpress == 1 && inx == 1 && iny == 1, 1, 0);
+        fcam = select(hit == 1, bid + 1, fcam);
+        fown = select(hit == 1 && bid == PANEL_PLAY, FOCUS_EDIT, fown);
       };
     };
+  };
+}
+
+focus_release :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    gfx.coarse_pointer(handle)(coarse:);
+    map (query { ppx }) eff {
+      map (query { eye, zoom }) eff {
+        map (query { fcam })(fcam) eff {
+          sx := (ppx - eye.x) * zoom + float(vw) * 0.5;
+          marg := select(coarse == 1, CAM_MARGIN_M, CAM_MARGIN);
+          lo := float(vw) * marg;
+          hi := float(vw) - lo;
+          out := select(sx < lo, 1, select(sx > hi, 1, 0));
+          fcam = select(out == 1, 0, fcam);
+        };
+      };
     };
+  };
+}
+
+focus_sync :: system eff {
+  map (query { handle }) eff {
     map (query { fown }) eff {
       if (fown == FOCUS_WORLD) {
         gfx.release_text(handle)(_:);
@@ -743,7 +734,7 @@ cam_push :: system eff {
     gfx.axis_x(handle)(dx:);
     gfx.coarse_pointer(handle)(coarse:);
     map (query { tax }) eff {
-    map (query { fown }) eff {
+    map (query { fown, fcam }) eff {
       map (query { ppx }) eff {
         map (query { eye, zoom })(eye) eff {
           adx := select(dx != 0, dx, tax);
@@ -754,7 +745,8 @@ cam_push :: system eff {
           past := select(sx < lo, sx - lo, select(sx > hi, sx - hi, 0.0));
           toward := select(past * float(adx) > 0.0, 1.0, 0.0);
           world := select(fown == FOCUS_WORLD, 1.0, 0.0);
-          eye.x = eye.x + (past / zoom) * CAM_PUSH * toward * world;
+          free := select(fcam == 0, 1.0, 0.0);
+          eye.x = eye.x + (past / zoom) * CAM_PUSH * toward * world * free;
         };
       };
     };
@@ -765,16 +757,19 @@ cam_push :: system eff {
 cam_center :: system eff {
   map (query { handle }) eff {
     gfx.coarse_pointer(handle)(coarse:);
-    map (query { title, size }) eff {
-      map (query { fown }) eff {
+    map (query { bid, title, size }) eff {
+      map (query { fcam }) eff {
         map (query { eye, zoom })(eye) eff {
           iz := 1.0 / zoom;
-          cx := PANEL_WX + float(size.w) * 0.5 * iz;
-          cy := PANEL_WY + float(size.h) * 0.5 * iz;
+          wx := select(bid == PANEL_SAND, 0.0 - SAND_WX, PANEL_WX);
+          wy := select(bid == PANEL_SAND, SAND_WY, PANEL_WY);
+          cx := wx + float(size.w) * 0.5 * iz;
+          cy := wy + float(size.h) * 0.5 * iz;
           ey := select(coarse == 1, EYE_Y0_M, EYE_Y0);
-          edit := select(fown == FOCUS_EDIT, 1.0, 0.0);
-          tx := select(edit > 0.5, cx, eye.x);
-          ty := select(edit > 0.5, cy, ey);
+          act := select(fcam == bid + 1, 1, 0);
+          idle := select(fcam == 0, 1, 0);
+          tx := select(act == 1, cx, eye.x);
+          ty := select(act == 1, cy, select(idle == 1, ey, eye.y));
           eye.x = eye.x + (tx - eye.x) * CAM_LERP;
           eye.y = eye.y + (ty - eye.y) * CAM_LERP;
         };
@@ -1455,7 +1450,10 @@ phys_sub :: func() -> Schedule {
             cam_push,
             cam_center,
             layout,
-            focus_update,
+            focus_input,
+            focus_claim,
+            focus_release,
+            focus_sync,
             rigid.supports,
             walk,
             jump,
@@ -1475,8 +1473,6 @@ phys_sub :: func() -> Schedule {
             phys_sub(),
             phys_sub(),
             phys_sub(),
-            confine_box,
-            confine_ball,
             clamp_player,
             sync_player_ppx,
             ui_input,

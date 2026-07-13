@@ -32,11 +32,27 @@ entire canvas (the backing store is only ~500 render px across). `lo` and `hi` *
 right-hand branch was never reached. Walking right never pushed the camera at all. A fraction cannot invert —
 `0.3 * vw` is always left of `0.7 * vw`, at any width.
 
-## `cam_center`
+## `cam_center` — camera focus is NOT keyboard focus
 
-Give the playground focus and the camera glides until the whole panel is dead centre; hand focus back to the
-world and the horizon settles back to `EYE_Y0` (x is left alone — that belongs to scroll and `cam_push`). The
-panel's world rect is derived from its **actual `layout` size**, not a hardcoded guess.
+Click a panel and the camera glides until it is dead centre. Release it (press a movement key) and the horizon
+settles back to `EYE_Y0`. The panel's world rect comes from its **actual `layout` size**, not a hardcoded guess.
+
+`Focus` carries **two** independent things:
+
+- **`fown`** — who owns the KEYBOARD (`FOCUS_WORLD` / `FOCUS_EDIT`).
+- **`fcam`** — which panel the CAMERA is centred on (0 = none, otherwise `bid + 1`).
+
+They are separate because the sandbox needs to pull the camera **without** taking the arrows — you need those to
+play in it. Clicking the playground takes both; clicking the sandbox takes only the camera.
+
+Any movement input clears `fcam`, so `cam_center` and `cam_push` can never fight: the moment you walk, the camera
+is yours again.
+
+### Edge detection must not live in the panel loop
+
+`focus_claim` iterates every panel row. The mouse-down **edge** (`md == 1 && fwas == 0`) therefore cannot be
+computed there — the first row would latch `fwas` and every later row would see no press at all. It lives in
+`focus_input`, which runs once, and the panel pass only reads the resulting `fpress`.
 
 ## Vertical
 

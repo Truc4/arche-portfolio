@@ -86,7 +86,8 @@ which lets you jump off the wall, re-stick, and climb it forever.
 
 ## The sandbox
 
-A short, **open-topped** container at world x −1700..−500, far left of the playground. It is real geometry —
+A short, **open-topped** container at world x −1880..−40, far left of the playground. It holds 12 boxes and 8
+balls, seeded in stacked columns so they collapse into a pile. It is real geometry —
 walls, ramp and stairs are static `Solid` bodies drawn straight from the physics, so what you see is what you
 collide with.
 
@@ -108,14 +109,13 @@ They are columns rather than a re-run of `seed_arena` because arche has no condi
 seed system assigns whole pool columns from array literals, which cannot be done from inside a `map` body. The
 spawn state has to live in the data.
 
-### The escape net
+### No escape net
 
-`confine_box` / `confine_ball` are a **last resort**, not a boundary — the static walls do all real collision.
-They only fire once a body is `ESC_MARGIN` past a wall, catching a body squeezed clean out of the bin.
+There is no confinement hack any more. The container's walls are real static bodies, so the solver keeps bodies
+in — nothing teleports them.
 
-They must **not** clamp at the wall line itself. An earlier version clamped to `ARENA_FLOOR - ext.y`, which is
-exactly where a resting box sits, so every frame it hard-snapped the position and zeroed the gravity impulse of
-a body that was resting perfectly well — a permanent tug-of-war with the contact solver.
-
-They are scoped to Box and Ball by archetype. A blanket query would match the (now dynamic) **player** and trap
-it inside the arena forever.
+An earlier `confine_box`/`confine_ball` pair clamped a body's position into the arena rect once it strayed past
+a margin. It was there because the *old* solver let bodies squeeze through walls, and it caused more problems
+than it solved: it wrote `pos` directly, so it ignored collisions and could shove a body straight through
+geometry, and an even earlier version clamped exactly at the resting line — hard-snapping a box that was sitting
+perfectly still, every frame, against the contact solver.
