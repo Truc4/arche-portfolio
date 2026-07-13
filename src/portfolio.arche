@@ -25,7 +25,7 @@ KEY_UP      :: 1002;
 FOCUS_WORLD :: 0;
 FOCUS_EDIT  :: 1;
 GRAV        :: 0.4;
-GDT         :: 0.025;
+GDT         :: 0.05;
 PHALF       :: 51.0;
 BREST       :: 0.12;
 BFRIC       :: 0.45;
@@ -675,7 +675,7 @@ seed_cards :: system eff {
   insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: 3000.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n16 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n8 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: 4800.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B6, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: 3600.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
 }
@@ -710,14 +710,6 @@ seed_cards :: system eff {
             rigid.supports,
             walk,
             jump,
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
-            phys_sub(),
             phys_sub(),
             phys_sub(),
             phys_sub(),
