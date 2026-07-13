@@ -50,8 +50,9 @@ gfx.clear
 draw_hills            parallax
 draw_round            parallax (clouds + bushes)
 gfx.rect              parallax buildings (Prop)
-panel.render_bg       BACKGROUND panels (layer 0) -- the sandbox
 text.render           the world signs
+panel.render_bg       BACKGROUND panels (layer 0) -- the sandbox
+button.render_bg      BACKGROUND buttons (layer 0) -- the sandbox RESET
 --------- gfx.split ---------        (browser: everything above lands on the background canvas)
 draw_solid            the container: walls, ramp, stairs (static bodies)
 draw_ground           the ground plane (Back)
@@ -70,6 +71,14 @@ with `plx < 1` must be underneath.
 **The ground must be drawn after the container.** The ramp's underside is necessarily buried — a slab has
 thickness, and its top face has to reach the ground line or you hit a lip and stop dead. The ground plane is what
 covers it.
+
+**`text.render` must precede the background panels.** The world signs are *scenery*, so they belong under the
+background panels — the browser fixes this with z-index (text `z1`, background panels/buttons `z2`), which is
+order-independent among the DOM layers. **Native has no z-index**: `text = framebuffer` blits the signs into the
+shared framebuffer *at its schedule position*, so paint order is the only thing that stacks them. With
+`text.render` after `panel.render_bg` the two backends diverged — the signs drifted *in front of* the sandbox
+panel natively (parallax slides the positive-x signs across it) but *behind* it in the browser. Scheduling
+`text.render` before the `*_bg` passes makes native agree with the browser's z-order.
 
 ## Rasterisation: sample pixel centres
 
