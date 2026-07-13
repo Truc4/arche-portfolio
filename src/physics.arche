@@ -4,8 +4,23 @@ sync_player_ppx :: map (query { ppx, pos })(ppx) {
   ppx = ppx + (pos.x - ppx);
 }
 
-rigid_gravity :: map (query { lvel, mi })(lvel) {
-  lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
+rigid_gravity :: map (query { lvel, mi, awake })(lvel) {
+  lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0) * float(awake);
+}
+
+sim_awake :: system eff {
+  map (query { eye }) eff {
+    active := select(eye.x < SIM_ON_X, 1, 0);
+    map (query { bcol, awake })(awake) eff {
+      awake = active;
+    };
+    map (query { qcol, awake })(awake) eff {
+      awake = active;
+    };
+    map (query { sflag, awake })(awake) eff {
+      awake = select(sflag == 1, active, 1);
+    };
+  };
 }
 
 jump :: system eff {
@@ -70,9 +85,6 @@ phys_sub :: func() -> Schedule {
     {
       rigid_gravity,
       rigid.contacts,
-      rigid.solve_lin,
-      rigid.solve_ang,
-      rigid.apply,
       rigid.solve_lin,
       rigid.solve_ang,
       rigid.apply,
