@@ -1,0 +1,85 @@
+#import { gfx rigid }
+
+sync_player_ppx :: map (query { ppx, pos })(ppx) {
+  ppx = ppx + (pos.x - ppx);
+}
+
+rigid_gravity :: map (query { lvel, mi })(lvel) {
+  lvel.y = lvel.y + GDT * select(mi.x > 0.0, 1.0, 0.0);
+}
+
+jump :: system eff {
+  map (query { handle }) eff {
+    gfx.axis_y(handle)(ay:);
+    map (query { tjump }) eff {
+    map (query { fown }) eff {
+      map (query { ppx, lvel, sup })(lvel) eff {
+        grounded := select(sup.y > 0.3, 1.0, 0.0);
+        mine := select(fown == FOCUS_WORLD, 1.0, 0.0);
+        key_or_pad := select(ay < 0, 1, tjump);
+        pressed := select(key_or_pad == 1, 1.0, 0.0) * mine;
+        go := grounded * pressed;
+        up := 0.0 - JUMP;
+        lvel.y = select(go > 0.5, up, lvel.y);
+      };
+    };
+    };
+  };
+}
+
+walk :: system eff {
+  map (query { handle }) eff {
+    gfx.axis_x(handle)(dx:);
+    map (query { tax }) eff {
+    map (query { fown }) eff {
+      map (query { ppx, lvel, sup })(lvel) eff {
+        adx := select(dx != 0, dx, tax);
+        mine := select(fown == FOCUS_WORLD, 1.0, 0.0);
+        held := select(adx != 0, 1.0, 0.0) * mine;
+        into := float(adx) * sup.x;
+        blocked := select(into > 0.3, 1.0, 0.0);
+        drive := held * (1.0 - blocked);
+        tgt := float(adx) * SPEED;
+        grounded := select(sup.y > 0.3, 1.0, 0.0);
+        coast := lvel.x * select(grounded > 0.5, WALK_DAMP, 1.0);
+        lvel.x = select(drive > 0.5, tgt, coast);
+      };
+    };
+    };
+  };
+}
+
+reset_arena :: system eff {
+  map (query { bid, clicked }) eff {
+    if (bid == BTN_RESET && clicked == 1) {
+      map (query { pos, lvel, spin, rot, home, hrot })(pos, lvel, spin, rot) eff {
+        pos.x = home.x;
+        pos.y = home.y;
+        lvel.x = 0.0;
+        lvel.y = 0.0;
+        spin.x = 0.0;
+        rot.x = hrot.x;
+        rot.y = hrot.y;
+      };
+    }
+  };
+}
+
+phys_sub :: func() -> Schedule {
+  return seq(
+    {
+      rigid_gravity,
+      rigid.contacts,
+      rigid.solve_lin,
+      rigid.solve_ang,
+      rigid.apply,
+      rigid.solve_lin,
+      rigid.solve_ang,
+      rigid.apply,
+      rigid.integrate,
+      rigid.solve_lin_relax,
+      rigid.solve_ang_relax,
+      rigid.apply,
+    },
+  );
+}

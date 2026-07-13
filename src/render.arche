@@ -1,0 +1,439 @@
+#import { gfx camera vec }
+
+project_box :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, ext, bsx, bsy, bhw, bhh })(bsx, bsy, bhw, bhh) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        bsx = i32(s.x);
+        bsy = i32(s.y);
+        bhw = i32(ext.x * zoom);
+        bhh = i32(ext.y * zoom);
+      };
+    };
+  };
+}
+
+project_back :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, kw, kh, ksx, ksy })(ksx, ksy) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        ksx = i32(s.x) - kw / 2;
+        ksy = i32(s.y) - kh / 2;
+      };
+    };
+  };
+}
+
+project_solid :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, ext, sflag, ssx, ssy, shw, shh })(ssx, ssy, shw, shh) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        hw := i32(ext.x * zoom);
+        hh := i32(ext.y * zoom);
+        ssx = i32(s.x);
+        ssy = i32(s.y);
+        shw = select(sflag == 1, hw, 0);
+        shh = select(sflag == 1, hh, 0);
+      };
+    };
+  };
+}
+
+project_ball :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, ext, qsx, qsy, qr })(qsx, qsy, qr) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        qsx = i32(s.x);
+        qsy = i32(s.y);
+        qr  = i32(ext.x * zoom);
+      };
+    };
+  };
+}
+
+draw_rbox :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { bsx, bsy, bhw, bhh, rot, bcol }) eff {
+      diag := bhw + bhh;
+      y0   := bsy - diag;
+      y1   := bsy + diag;
+      x0   := bsx - diag;
+      x1   := bsx + diag;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      hw := float(bhw);
+      hh := float(bhh);
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          dx := float(xx - bsx) + 0.5;
+          dy := float(yy - bsy) + 0.5;
+          lx := dx * rot.x + dy * rot.y;
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
+            framebuffer[yy * vw + xx] = bcol;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_ground :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { ksx, ksy, kw, kh, kcol }) eff {
+      y0 := ksy;
+      y1 := ksy + kh;
+      x0 := ksx;
+      x1 := ksx + kw;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = kcol;
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_solid :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { ssx, ssy, shw, shh, rot }) eff {
+      diag := shw + shh;
+      y0   := ssy - diag;
+      y1   := ssy + diag;
+      x0   := ssx - diag;
+      x1   := ssx + diag;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      hw := float(shw);
+      hh := float(shh);
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          dx := float(xx - ssx) + 0.5;
+          dy := float(yy - ssy) + 0.5;
+          lx := dx * rot.x + dy * rot.y;
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
+            framebuffer[yy * vw + xx] = BIN;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_ball :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { qsx, qsy, qr, qcol }) eff {
+      r2   := qr * qr;
+      yy   := qsy - qr;
+      ylim := qsy + qr + 1;
+      if (yy < 0) {
+        yy = 0;
+      }
+      if (ylim > vh) {
+        ylim = vh;
+      }
+      for (; yy < ylim;) {
+        xx   := qsx - qr;
+        xlim := qsx + qr + 1;
+        if (xx < 0) {
+          xx = 0;
+        }
+        if (xlim > vw) {
+          xlim = vw;
+        }
+        for (; xx < xlim;) {
+          dx := float(xx - qsx) + 0.5;
+          dy := float(yy - qsy) + 0.5;
+          if (dx * dx + dy * dy < float(r2)) {
+            framebuffer[yy * vw + xx] = qcol;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+project :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, rw, rh, plx, rx, ry })(rx, ry) eff {
+        wx := pos.x + (eye.x - EYE0) * (1.0 - plx);
+        s  := camera.to_screen(
+          vec.mk(wx, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        rx = i32(s.x) - rw / 2;
+        ry = i32(s.y) - rh / 2;
+      };
+    };
+  };
+}
+
+project_hill :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { hpx, hpy, hsx, hsy })(hsx, hsy) eff {
+        wx := hpx + (eye.x - EYE0) * (1.0 - PAR_HILL);
+        s  := camera.to_screen(
+          vec.mk(wx, hpy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        hsx = i32(s.x);
+        hsy = i32(s.y);
+      };
+    };
+  };
+}
+
+project_round :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { cpx, cpy, cplx, csx, csy })(csx, csy) eff {
+        wx := cpx + (eye.x - EYE0) * (1.0 - cplx);
+        s  := camera.to_screen(
+          vec.mk(wx, cpy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        csx = i32(s.x);
+        csy = i32(s.y);
+      };
+    };
+  };
+}
+
+project_player :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { pos, prx, pry })(prx, pry) eff {
+        s := camera.to_screen(
+          vec.mk(pos.x, pos.y),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        prx = i32(s.x);
+        pry = i32(s.y);
+      };
+    };
+  };
+}
+
+draw_hills :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { hsx, hsy, hhw, hht, hcol }) eff {
+      apex := hsy - hht;
+      yy   := apex;
+      if (yy < 0) {
+        yy = 0;
+      }
+      ybase := hsy;
+      if (ybase > vh) {
+        ybase = vh;
+      }
+      for (; yy < ybase;) {
+        half := hhw * (yy - apex) / hht;
+        x0   := hsx - half;
+        x1   := hsx + half;
+        if (x0 < 0) {
+          x0 = 0;
+        }
+        if (x1 > vw) {
+          x1 = vw;
+        }
+        xx := x0;
+        for (; xx < x1;) {
+          framebuffer[yy * vw + xx] = hcol;
+          xx                        = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_round :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { csx, csy, crad, ccol }) eff {
+      r2   := crad * crad;
+      yy   := csy - crad;
+      ylim := csy + crad + 1;
+      if (yy < 0) {
+        yy = 0;
+      }
+      if (ylim > vh) {
+        ylim = vh;
+      }
+      for (; yy < ylim;) {
+        xx   := csx - crad;
+        xlim := csx + crad + 1;
+        if (xx < 0) {
+          xx = 0;
+        }
+        if (xlim > vw) {
+          xlim = vw;
+        }
+        for (; xx < xlim;) {
+          dx := xx - csx;
+          dy := yy - csy;
+          if (dx * dx + dy * dy <= r2) {
+            framebuffer[yy * vw + xx] = ccol;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+draw_player :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { prx, pry, rot }) {
+      hw   := float(PHALF);
+      hh   := float(PHALF);
+      diag := PW;
+      y0   := pry - diag;
+      y1   := pry + diag;
+      x0   := prx - diag;
+      x1   := prx + diag;
+      if (y0 < 0) {
+        y0 = 0;
+      }
+      if (y1 > vh) {
+        y1 = vh;
+      }
+      if (x0 < 0) {
+        x0 = 0;
+      }
+      if (x1 > vw) {
+        x1 = vw;
+      }
+      yy := y0;
+      for (; yy < y1;) {
+        xx := x0;
+        for (; xx < x1;) {
+          dx := float(xx - prx) + 0.5;
+          dy := float(yy - pry) + 0.5;
+          lx := dx * rot.x + dy * rot.y;
+          ly := dy * rot.x - dx * rot.y;
+          if (vec.absf(lx) < hw && vec.absf(ly) < hh) {
+            framebuffer[yy * vw + xx] = PLAYER;
+          }
+          xx = xx + 1;
+        }
+        yy = yy + 1;
+      }
+    };
+  };
+}
+
+project_text :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { twx, twy, tplx, tlen, tsz, tx, ty })(tx, ty) eff {
+        wx := twx + (eye.x - EYE0) * (1.0 - tplx);
+        s  := camera.to_screen(
+          vec.mk(wx, twy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        tx = i32(s.x) - (tlen * tsz) / 2;
+        ty = i32(s.y);
+      };
+    };
+  };
+}

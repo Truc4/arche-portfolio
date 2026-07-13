@@ -13,7 +13,9 @@ TEXTVIEW ?= window
 dev-osin:  TEXTEDIT = x11in
 dev-osgtk: TEXTEDIT = x11gtk
 dev-osgtk: TEXTVIEW = x11gtk
-dev dev-osin dev-osgtk:
+SRC := $(wildcard src/*.arche)
+
+dev dev-osin dev-osgtk: $(SRC)
 	@mkdir -p build
 	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=window,textedit=$(TEXTEDIT),textview=$(TEXTVIEW),button=window,compiler=clib \
 	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
@@ -22,7 +24,7 @@ dev dev-osin dev-osgtk:
 serve: www/portfolio.wasm $(WWWDEPS)
 	python3 dev-server.py $(PORT) www
 
-www/portfolio.wasm: src/portfolio.arche
+www/portfolio.wasm: $(SRC)
 	$(ARCHE) build --arch=wasm32 -o $@ src/portfolio.arche
 
 www/wasi.js: ../arche-playground/www/runtime/wasi.js
