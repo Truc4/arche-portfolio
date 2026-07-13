@@ -640,42 +640,42 @@ seed_cards :: system eff {
   insert(Prop { pos: (2100.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3000.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (0.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (200.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (4800.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3600.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Prop { pos: (2100.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3000.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (0.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (200.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (4800.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3600.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Prop { pos: (2100.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3000.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (0.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (200.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (4800.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (3600.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Sign { twx: 2100.0, twy: 1027.0, tplx: 1.0, tstr: "ABOUT",         tlen:  5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx:  900.0, twy: 1027.0, tplx: 1.0, tstr: "ARCHE + WASM",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 3000.0, twy: 1027.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 0.0, twy: 1027.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 200.0, twy: 1027.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 4800.0, twy: 1027.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 3600.0, twy: 1027.0, tplx: 1.0, tstr: "THE LANGUAGE",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
 
   insert(InfoPanel { bid: INFO_P0, layer: 1, screen: (0,0), size: (0,0), title: "ABOUT THIS SITE", len: 15, sub: "built from the language up",       sublen: 26, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoPanel { bid: INFO_P1, layer: 1, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoPanel { bid: INFO_P2, layer: 1, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: 3000.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 0.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoPanel { bid: INFO_P5, layer: 1, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: 4800.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoPanel { bid: INFO_P6, layer: 1, screen: (0,0), size: (0,0), title: "THE LANGUAGE",  len: 12, sub: "static, data-oriented, no heap",   sublen: 30, view: (0,0), iwx: 3600.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
 
   insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: 3000.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n16 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 0.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n16 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: 4800.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
   insert(InfoBody { bid: INFO_B6, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: 3600.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
 }
