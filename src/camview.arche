@@ -1,0 +1,84 @@
+#import { gfx }
+
+pan :: system eff {
+  map (query { handle }) eff {
+    gfx.scroll(handle)(sc:);
+    map (query { eye, zoom })(eye) eff {
+      eye.x = eye.x + float(sc) * SCROLL_SPEED;
+    };
+  };
+}
+
+cam_push :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    gfx.axis_x(handle)(dx:);
+    gfx.coarse_pointer(handle)(coarse:);
+    map (query { tax }) eff {
+    map (query { fown, fcam }) eff {
+      map (query { ppx }) eff {
+        map (query { eye, zoom })(eye) eff {
+          adx := select(dx != 0, dx, tax);
+          sx := (ppx - eye.x) * zoom + float(vw) * 0.5;
+          marg := select(coarse == 1, CAM_MARGIN_M, CAM_MARGIN);
+          lo := float(vw) * marg;
+          hi := float(vw) - lo;
+          past := select(sx < lo, sx - lo, select(sx > hi, sx - hi, 0.0));
+          toward := select(past * float(adx) > 0.0, 1.0, 0.0);
+          world := select(fown == FOCUS_WORLD, 1.0, 0.0);
+          free := select(fcam == 0, 1.0, 0.0);
+          eye.x = eye.x + (past / zoom) * CAM_PUSH * toward * world * free;
+        };
+      };
+    };
+    };
+  };
+}
+
+cam_center :: system eff {
+  map (query { handle }) eff {
+    gfx.coarse_pointer(handle)(coarse:);
+    map (query { bid, title, size }) eff {
+      map (query { fcam }) eff {
+        map (query { eye, zoom })(eye) eff {
+          iz := 1.0 / zoom;
+          wx := select(bid == PANEL_SAND, 0.0 - SAND_WX, PANEL_WX);
+          wy := select(bid == PANEL_SAND, SAND_WY, PANEL_WY);
+          cx := wx + float(size.w) * 0.5 * iz;
+          cy := wy + float(size.h) * 0.5 * iz;
+          ey := select(coarse == 1, EYE_Y0_M, EYE_Y0);
+          act := select(fcam == bid + 1, 1, 0);
+          idle := select(fcam == 0, 1, 0);
+          tx := select(act == 1, cx, eye.x);
+          ty := select(act == 1, cy, select(idle == 1, ey, eye.y));
+          eye.x = eye.x + (tx - eye.x) * CAM_LERP;
+          eye.y = eye.y + (ty - eye.y) * CAM_LERP;
+        };
+      };
+    };
+  };
+}
+
+clamp_player :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye }) eff {
+      map (query { ppx, pos, lvel })(pos, lvel) eff {
+        lo := eye.x - float(vw) * 0.5 + float(PW);
+        hi := eye.x + float(vw) * 0.5 - float(PW);
+        if (pos.x < lo) {
+          pos.x = lo;
+          if (lvel.x < 0.0) {
+            lvel.x = 0.0;
+          }
+        }
+        if (pos.x > hi) {
+          pos.x = hi;
+          if (lvel.x > 0.0) {
+            lvel.x = 0.0;
+          }
+        }
+      };
+    };
+  };
+}

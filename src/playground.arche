@@ -1,0 +1,121 @@
+#import { gfx camera vec ui compiler os }
+
+measure :: system eff {
+  map (query { source, len, cursor })(len, cursor) eff {
+    len = 0;
+    for (; len < source.length && source[len] != 0; len += 1) {
+    }
+    cursor = len;
+  };
+}
+
+layout :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    gfx.coarse_pointer(handle)(coarse:);
+    map (query { eye, zoom }) eff {
+      s := camera.to_screen(
+        vec.mk(PANEL_WX, PANEL_WY),
+        eye,
+        zoom,
+        vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+      );
+      px   := i32(s.x);
+      py   := i32(s.y);
+      pw   := select(coarse == 1, vw - 2 * ui.PAD, PANEL_W);
+      cx   := ui.content_x(px);
+      cw   := ui.content_w(pw);
+      cy0  := ui.content_top(py);
+      half := (cw - ui.GAP) / 2;
+      ew   := select(coarse == 1, cw, half);
+      eh   := select(coarse == 1, PANE_H / 2, PANE_H);
+      ox   := select(coarse == 1, cx, cx + half + ui.GAP);
+      oy   := select(coarse == 1, ui.next(cy0, eh), cy0);
+      cyb  := select(coarse == 1, ui.next(ui.next(cy0, eh), eh), ui.next(cy0, PANE_H));
+      ph   := cyb + BTN_H + ui.PAD - py;
+      ss := camera.to_screen(
+        vec.mk(0.0 - SAND_WX, SAND_WY),
+        eye,
+        zoom,
+        vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+      );
+      sx := i32(ss.x);
+      sy := i32(ss.y);
+      map (query { bid, title, screen, size })(screen, size) eff {
+        sand := select(bid == PANEL_SAND, 1, 0);
+        screen.x = select(sand == 1, sx, px);
+        screen.y = select(sand == 1, sy, py);
+        size.w   = select(sand == 1, SAND_W, pw);
+        size.h   = select(sand == 1, SAND_H, ph);
+      };
+      map (query { source, screen, size })(screen, size) eff {
+        screen.x = cx;
+        screen.y = cy0;
+        size.w   = ew;
+        size.h   = eh;
+      };
+      map (query { output, screen, size })(screen, size) eff {
+        screen.x = ox;
+        screen.y = oy;
+        size.w   = ew;
+        size.h   = eh;
+      };
+      map (query { bid, label, screen, size })(screen, size) eff {
+        vmin := select(vw < vh, vw, vh);
+        pad  := vmin * PAD_VMIN / 100;
+        gap  := vmin * PAD_GAPV / 100;
+        sidex := vw * PAD_SIDEV / 100;
+        pady := vh - pad - (vh * PAD_BOTV / 100);
+        lx := sidex;
+        rx := sidex + pad + gap;
+        jx := vw - pad - sidex;
+        rsx := sx + SAND_W - BTN_W - ui.PAD;
+        rsy := sy + ui.PAD;
+        bx := select(bid == BTN_LEFT, lx,
+              select(bid == BTN_RIGHT, rx,
+              select(bid == BTN_JUMP, jx,
+              select(bid == BTN_RESET, rsx, cx))));
+        by := select(bid == BTN_RUN, cyb, select(bid == BTN_RESET, rsy, pady));
+        pad2 := pad * coarse;
+        pw2 := select(bid == BTN_RUN, BTN_W, select(bid == BTN_RESET, BTN_W, pad2));
+        ph2 := select(bid == BTN_RUN, BTN_H, select(bid == BTN_RESET, BTN_H, pad2));
+        screen.x = bx;
+        screen.y = by;
+        size.w   = pw2;
+        size.h   = ph2;
+      };
+    };
+  };
+}
+
+run_button :: system eff {
+  map (query { bid, clicked }) eff {
+    if (bid == BTN_RUN && clicked == 1) {
+      map (query { submit })(submit) eff {
+        submit = 1;
+      };
+    }
+  };
+}
+
+run_it :: system eff {
+  map (query { source, len, submit })(len, submit) eff {
+    if (submit == 1) {
+      submit = 0;
+      len    = 0;
+      for (; len < source.length && source[len] != 0; len += 1) {
+      }
+      n := len;
+      map (query { output, len })(len) eff {
+        compiler.run(source, n, output, output.length)(_:, output);
+        len = 0;
+        for (; len < output.length && output[len] != 0; len += 1) {
+        }
+      };
+    }
+  };
+}
+
+done :: map (Closed) eff {
+  os.exit(0)(_:);
+}

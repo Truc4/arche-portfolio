@@ -1,9 +1,23 @@
 # Architecture
 
-The portfolio is **one arche program** (`src/portfolio.arche`) compiled to a single wasm module. It is a
+The portfolio is **one arche program** compiled to a single wasm module. It is a
 walkable 2D world that also embeds a live arche playground (editor + output + RUN). The same source runs
 natively (`make dev`, X11 + framebuffer UI) and in the browser (`make serve`, canvas + DOM UI) — the device
 `[select]` in `arche.toml` swaps the backends.
+
+The program is split across files that **path-import** into one flat namespace, so everything is still
+referenced by bare name and `arche build src/portfolio.arche` follows the imports transitively:
+
+- `src/portfolio.arche` — **the driver: data only.** Constants, component + archetype declarations, the ECS
+  pools, the `boot`/`seed*` initialization, and the single `#run` schedule. No frame logic.
+- `src/render.arche` — `project_*` (world→screen) and `draw_*` (rasterizers).
+- `src/physics.arche` — gravity, `walk`/`jump`, `phys_sub` (the substep), `reset_arena`, `sync_player_ppx`.
+- `src/camview.arche` — `pan`, `cam_push`, `cam_center`, `clamp_player`.
+- `src/input.arche` — key drain, virtual pads, and the whole `focus_*` / `ui_input` set.
+- `src/playground.arche` — `layout`, `measure`, the RUN button, `run_it` (the embedded compiler), `done`.
+
+Each module `#import`s only the devices it calls; the driver's constants and archetypes are visible to all of
+them through the flat merge.
 
 ## Archetypes and pools
 
@@ -54,7 +68,7 @@ Constraints worth knowing before you reorder anything:
 
 ## Where things live
 
-- `src/portfolio.arche` — the whole driver.
+- `src/portfolio.arche` — the driver (data + schedule); `src/{render,physics,camview,input,playground}.arche` — the logic modules it imports.
 - `../arche/extras/rigid/` — the rigid-body device (solver + collision).
 - `../arche/extras/{gfx,camera,text,ui/*}` — the device library.
 - `www/index.html` — the page shell, and the CSS skin for the touch pads.
