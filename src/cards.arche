@@ -28,7 +28,8 @@ info_layout :: system eff {
       map (query { title, iwx, iwy, iprog, screen, size })(screen, size) eff {
         a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         e   := iprog;
-        fw  := float(INFO_W);
+        cap := INFO_WFRAC * float(vw);
+        fw  := select(float(INFO_W) < cap, float(INFO_W), cap);
         fh  := float(INFO_H);
         gap := float(INFO_GAP);
         size.w   = i32(fw * e);
@@ -39,7 +40,8 @@ info_layout :: system eff {
       map (query { output, iwx, iwy, iprog, screen, size })(screen, size) eff {
         a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         e   := iprog;
-        fw  := float(INFO_W);
+        cap := INFO_WFRAC * float(vw);
+        fw  := select(float(INFO_W) < cap, float(INFO_W), cap);
         fh  := float(INFO_H);
         gap := float(INFO_GAP);
         pad := float(ui.PAD);

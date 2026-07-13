@@ -178,6 +178,7 @@ OUT_BG :: 0x11151f;
 OUT_FG :: 0xa6e3a1;
 
 INFO_W     :: 900;
+INFO_WFRAC :: 0.9;
 INFO_H     :: 360;
 INFO_RANGE :: 220.0;
 INFO_LERP  :: 0.18;
