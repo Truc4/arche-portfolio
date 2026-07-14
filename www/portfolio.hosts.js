@@ -814,6 +814,132 @@
 })();
 
 
+// ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/embed/dom/host.js ====
+// Browser host for the `embed` device's dom backend — SHIPS WITH THE DEVICE (co-located with backend.arche);
+// `arche build --arch=wasm32` collects it into <out>.hosts.js. The arche program owns no browser — it issues
+// `embed_be_render(bid, src, n, kind, x, y, w, h)` / `embed_be_link(bid, link, n)` calls that lower to wasm
+// imports THIS host fulfils by reconciling ONE real element per `bid`, absolutely positioned over the gfx
+// <canvas>: an <iframe> for a LIVE site (kind 0), or an <a target=_blank><img></a> for a SHOT (kind 1).
+//
+// COORDINATES: identical to textview/dom — the driver's rect is already in RENDER pixels, so scale by
+// `rt._uiScale || innerHeight / renderH` and place absolutely. z-index 6 keeps a card above the foreground
+// panel (5) it visually sits in.
+//
+// LAZY: the driver's cards are always open, so "has a non-zero rect" does NOT mean "the visitor is looking at
+// it" — every card has one from the first frame. What still separates them is WHERE that rect is: a card the
+// visitor has not walked to sits far off the side of the viewport. So `src` is assigned the first time a card
+// comes within a screen-width of the viewport, and cached forever after. Without this, every embedded site
+// downloads at page load — sites the visitor may never walk to. Once loaded a card is never re-`src`ed, so
+// walking past twice does not re-fetch (and does not lose the site's scroll position).
+//
+// FOCUS: clicking into a cross-origin iframe moves focus out of this document, and the arrow keys stop reaching
+// the world — the same contract the playground's editor already has ("click the world to resume walking"). The
+// browser will not blur a cross-origin iframe for us, so a pointerdown ANYWHERE outside one explicitly does.
+(function () {
+  (globalThis.archeHosts ??= []).push({
+    bind(rt) {
+      this.dec = new TextDecoder();
+      // ONE REAL ELEMENT PER `bid` — keyed like the panel/textview hosts, so N cards are independent.
+      this.cards = new Map();
+      this._blurWired = false;
+    },
+
+    seams(rt) {
+      const self = this;
+
+      // A pointerdown outside every card hands the keyboard back to the world (see FOCUS above).
+      const wireBlur = () => {
+        if (self._blurWired || typeof addEventListener !== "function") return;
+        self._blurWired = true;
+        addEventListener("pointerdown", (e) => {
+          const a = document.activeElement;
+          if (!a || a.tagName !== "IFRAME") return;
+          for (const c of self.cards.values()) if (c.el === e.target || c.el.contains(e.target)) return;
+          a.blur();
+          window.focus();
+        }, true);
+      };
+
+      const get = (bid, kind) => {
+        let c = self.cards.get(bid);
+        if (c) return c;
+        const id = "ui-embed-" + bid;
+        let el = document.getElementById(id);
+        let inner = null;
+        if (!el) {
+          const frame = "position:absolute;box-sizing:border-box;margin:0;overflow:hidden;" +
+            "background:#11151f;border:1px solid #232838;border-radius:0.4em;";
+          if (kind === 1) {
+            // SHOT: the picture is the link. `noopener` because the target is a plain external site.
+            el = document.createElement("a");
+            el.target = "_blank";
+            el.rel = "noopener";
+            el.style.cssText = frame + "display:block;cursor:pointer;";
+            inner = document.createElement("img");
+            inner.style.cssText = "display:block;width:100%;height:100%;object-fit:cover;object-position:top center;";
+            el.appendChild(inner);
+          } else {
+            // LIVE: the site itself. `no-referrer` keeps this page out of the embedded site's logs.
+            el = document.createElement("iframe");
+            el.setAttribute("loading", "lazy");
+            el.setAttribute("referrerpolicy", "no-referrer");
+            el.style.cssText = frame + "border-width:1px;display:block;";
+          }
+          el.id = id;
+          (rt.root || document.body).appendChild(el);
+        }
+        wireBlur();
+        c = { el, inner, kind, src: null };
+        self.cards.set(bid, c);
+        return c;
+      };
+
+      return {
+        embed_be_render(bid, sPtr, n, kind, x, y, w, h) {
+          const c = get(bid, kind);
+          // A zero-size rect is the DRIVER saying "not now" — hide it (the card is shut). Don't touch `src`:
+          // hiding must not unload a site the visitor already opened.
+          if (w <= 0 || h <= 0) { c.el.style.display = "none"; return; }
+          c.el.style.display = "";
+
+          const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
+          const px = x * s, py = y * s, pw = w * s, ph = h * s;
+          c.el.style.zIndex = "6";
+          c.el.style.left = px + "px";
+          c.el.style.top = py + "px";
+          c.el.style.width = pw + "px";
+          c.el.style.height = ph + "px";
+          c.el.style.pointerEvents = "auto";
+
+          // FETCH ONLY WHEN THE CAMERA BRINGS IT NEAR. These cards are always open, so "has a non-zero rect"
+          // no longer means "the visitor is looking at it" — every card has one from the first frame. What
+          // still distinguishes them is WHERE that rect is: a card the visitor hasn't walked to sits far off
+          // the side of the viewport. Load it one screen-width out, so it is ready by the time it scrolls in,
+          // and never unload — walking past twice must not re-fetch.
+          if (c.src === null) {
+            const m = window.innerWidth;
+            const near = px < window.innerWidth + m && px + pw > -m &&
+                         py < window.innerHeight + m && py + ph > -m;
+            if (!near) return;
+            c.src = self.dec.decode(new Uint8Array(rt.memory().buffer, sPtr, n));
+            if (c.kind === 1) c.inner.src = c.src;
+            else c.el.src = c.src;
+          }
+        },
+
+        embed_be_link(bid, lPtr, n) {
+          const c = self.cards.get(bid);
+          // Only a SHOT has somewhere to go; a LIVE card IS the site.
+          if (!c || c.kind !== 1 || n <= 0) return;
+          const href = self.dec.decode(new Uint8Array(rt.memory().buffer, lPtr, n));
+          if (c.el.getAttribute("href") !== href) c.el.setAttribute("href", href);
+        },
+      };
+    },
+  });
+})();
+
+
 // ==== /home/curt/Code/arche-portfolio/../arche-playground/playground/devices/compiler/wasm/host.js ====
 // Browser host for the `compiler` device's wasm backend — SHIPS WITH THE DEVICE, collected into
 // <out>.hosts.js by `arche build --arch=wasm32`. Fulfils compiler_be_run by (1) compiling the source with the

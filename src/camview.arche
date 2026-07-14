@@ -78,6 +78,19 @@ clamp_player :: system eff {
             lvel.x = 0.0;
           }
         }
+        wl := 0.0 - WORLD_LMAG;
+        if (pos.x < wl) {
+          pos.x = wl;
+          if (lvel.x < 0.0) {
+            lvel.x = 0.0;
+          }
+        }
+        if (pos.x > WORLD_R) {
+          pos.x = WORLD_R;
+          if (lvel.x > 0.0) {
+            lvel.x = 0.0;
+          }
+        }
       };
     };
   };
