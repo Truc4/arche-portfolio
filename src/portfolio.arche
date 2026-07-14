@@ -742,8 +742,8 @@ seed_cards :: system eff {
   insert(Sign { twx: EMB_WX1, twy: 1027.0, tplx: 1.0, tstr: "2019", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: EMB_WX2, twy: 1027.0, tplx: 1.0, tstr: "2022", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: EMB_WX3, twy: 1027.0, tplx: 1.0, tstr: "2026", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: ARROW_L + 40.0, twy: 1027.0, tplx: 1.0, tstr: "DEMOS",    tlen: 5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: ARROW_R - 40.0, twy: 1027.0, tplx: 1.0, tstr: "TIMELINE", tlen: 8, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_L, twy: 1027.0, tplx: 1.0, tstr: "DEMOS",    tlen: 5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_R, twy: 1027.0, tplx: 1.0, tstr: "TIMELINE", tlen: 8, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
 
   insert(Wedge { wpx: ARROW_L - 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 0 - 1, wsx: 0, wsy: 0 })(_:, _ok:);
   insert(Wedge { wpx: ARROW_R + 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 1, wsx: 0, wsy: 0 })(_:, _ok:);
