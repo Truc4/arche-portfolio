@@ -251,6 +251,25 @@ project :: system eff {
   };
 }
 
+// Signposts sit in the world proper (no parallax), so the anchor projects straight through.
+project_wedge :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { wpx, wpy, wsx, wsy })(wsx, wsy) eff {
+        s := camera.to_screen(
+          vec.mk(wpx, wpy),
+          eye,
+          zoom,
+          vec.mk(float(vw) * 0.5, float(vh) * 0.5),
+        );
+        wsx = i32(s.x);
+        wsy = i32(s.y);
+      };
+    };
+  };
+}
+
 project_hill :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
@@ -336,6 +355,36 @@ draw_hills :: system (query { framebuffer })(framebuffer) eff {
           xx                        = xx + 1;
         }
         yy = yy + 1;
+      }
+    };
+  };
+}
+
+// A wedge is a triangle lying on its side: a base of half-height `whh` at (wsx, wsy), tapering to a point
+// `whw` pixels away in `wdir` (-1 left, +1 right). `Hill` already rasterizes a triangle, but only ever an
+// upright one — it walks rows and widens; this walks COLUMNS and narrows, which is the one shape the renderer
+// could not make. It exists so a signpost that points somewhere can actually be pointed.
+draw_wedge :: system (query { framebuffer })(framebuffer) eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { wsx, wsy, whw, whh, wcol, wdir }) eff {
+      for (i := 0; i < whw; i += 1) {
+        xx := wsx + wdir * i;
+        if (xx >= 0 && xx < vw) {
+          // Half-height falls linearly from `whh` at the base to 0 at the tip.
+          halfh := whh * (whw - i) / whw;
+          y0 := wsy - halfh;
+          y1 := wsy + halfh;
+          if (y0 < 0) {
+            y0 = 0;
+          }
+          if (y1 > vh) {
+            y1 = vh;
+          }
+          for (yy := y0; yy < y1; yy += 1) {
+            framebuffer[yy * vw + xx] = wcol;
+          }
+        }
       }
     };
   };

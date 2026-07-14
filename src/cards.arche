@@ -6,17 +6,83 @@ measure_cards :: system eff {
     for (; len < output.length && output[len] != 0; len += 1) {
     }
   };
+  map (query { esrc, elen, elink, ellen })(elen, ellen) eff {
+    elen = 0;
+    for (; elen < esrc.length && esrc[elen] != 0; elen += 1) {
+    }
+    ellen = 0;
+    for (; ellen < elink.length && elink[ellen] != 0; ellen += 1) {
+    }
+  };
 }
 
 info_open :: system eff {
   map (query { ppx }) eff {
-    map (query { title, iwx, iprog })(iprog) eff {
+    map (query { title, iwx, iprog, ipin })(iprog) eff {
       near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
-      iprog = iprog + (near - iprog) * INFO_LERP;
+      tgt  := select(ipin == 1, 1.0, near);
+      iprog = iprog + (tgt - iprog) * INFO_LERP;
     };
-    map (query { output, iwx, iprog })(iprog) eff {
+    map (query { output, iwx, iprog, ipin })(iprog) eff {
       near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
-      iprog = iprog + (near - iprog) * INFO_LERP;
+      tgt  := select(ipin == 1, 1.0, near);
+      iprog = iprog + (tgt - iprog) * INFO_LERP;
+    };
+    map (query { esrc, iwx, iprog, ipin })(iprog) eff {
+      near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
+      tgt  := select(ipin == 1, 1.0, near);
+      iprog = iprog + (tgt - iprog) * INFO_LERP;
+    };
+  };
+}
+
+// The site cards' OPEN buttons ride their panels. `label` + `iwx` picks out SiteButton (a plain Button has no
+// world anchor), and the anchor is the panel's, so the button is placed from exactly the rect `info_layout`
+// gives the panel: bottom-right of it, inside the padding, in the strip the embed leaves free.
+site_btn_layout :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { label, iwx, iwy, iw, ih, screen, size })(screen, size) eff {
+        a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        cap := INFO_WFRAC * float(vw);
+        fw  := select(iw < cap, iw, cap);
+        gap := float(INFO_GAP);
+        pad := float(ui.PAD);
+        screen.x = i32(a.x + fw * 0.5 - pad - float(OPEN_W));
+        screen.y = i32(a.y - gap - pad - float(OPEN_H));
+        size.w   = OPEN_W;
+        size.h   = OPEN_H;
+      };
+    };
+  };
+}
+
+// A button is a PRODUCER of `clicked`; the embed device is a CONSUMER of `eopen`. This is the wire between
+// them — the same shape as the playground's `run_button`, which turns BTN_RUN's click into a compile.
+// `eopen` is cleared first, so it is a one-frame pulse and a held button does not reopen the site every frame.
+site_open :: system eff {
+  map (query { ebtn, eopen })(eopen) eff {
+    eopen = 0;
+  };
+  map (query { bid, label, clicked }) eff {
+    map (query { ebtn, eopen })(eopen) eff {
+      eopen = select(clicked == 1 && ebtn == bid, 1, eopen);
+    };
+  };
+}
+
+// Click into a site and the camera comes to it — the same move the playground makes when its editor takes the
+// keyboard. The embed device wrote `efocus` from the browser's own focus, which is the only way to know: a card
+// is a DOM element ABOVE the gfx canvas, so a click on it never reaches the canvas mouse listeners that
+// `focus_claim` hit-tests against. `epanel` names the panel to frame; +1 because `fcam` reserves 0 for nobody.
+//
+// Only ever SETS `fcam`. Releasing is already handled: clicking the world clears it (`focus_input`), and so
+// does walking off the edge of the view (`focus_release`).
+embed_focus :: system eff {
+  map (query { efocus, epanel }) eff {
+    map (query { fcam })(fcam) eff {
+      fcam = select(efocus == 1, epanel + 1, fcam);
     };
   };
 }
@@ -25,29 +91,47 @@ info_layout :: system eff {
   map (query { handle }) eff {
     gfx.dims(handle)(vw:, vh:);
     map (query { eye, zoom }) eff {
-      map (query { title, iwx, iwy, iprog, screen, size })(screen, size) eff {
+      map (query { title, iwx, iwy, iprog, iw, ih, screen, size })(screen, size) eff {
         a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         e   := iprog;
         cap := INFO_WFRAC * float(vw);
-        fw  := select(float(INFO_W) < cap, float(INFO_W), cap);
-        fh  := float(INFO_H);
+        fw  := select(iw < cap, iw, cap);
+        fh  := ih;
         gap := float(INFO_GAP);
         size.w   = i32(fw * e);
         size.h   = i32(fh * e);
         screen.x = i32(a.x - fw * 0.5 * e);
         screen.y = i32(a.y - (fh + gap) * e);
       };
-      map (query { output, iwx, iwy, iprog, screen, size })(screen, size) eff {
+      map (query { output, iwx, iwy, iprog, iw, ih, screen, size })(screen, size) eff {
         a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         e   := iprog;
         cap := INFO_WFRAC * float(vw);
-        fw  := select(float(INFO_W) < cap, float(INFO_W), cap);
-        fh  := float(INFO_H);
+        fw  := select(iw < cap, iw, cap);
+        fh  := ih;
         gap := float(INFO_GAP);
         pad := float(ui.PAD);
         th  := float(ui.TITLE_H);
         size.w   = i32((fw - pad - pad) * e);
         size.h   = i32((fh - pad - th - pad) * e);
+        screen.x = i32(a.x - (fw * 0.5 - pad) * e);
+        screen.y = i32(a.y - (fh + gap - pad - th) * e);
+      };
+      // The embed stops SHORT of the panel's bottom edge, leaving a strip for the OPEN button — the same shape
+      // the playground has (editor on top, RUN underneath). Without the strip the button would have to sit on
+      // top of the site, which is not a button on a panel, it is a sticker on a website.
+      map (query { esrc, iwx, iwy, iprog, iw, ih, screen, size })(screen, size) eff {
+        a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        e   := iprog;
+        cap := INFO_WFRAC * float(vw);
+        fw  := select(iw < cap, iw, cap);
+        fh  := ih;
+        gap := float(INFO_GAP);
+        pad := float(ui.PAD);
+        th  := float(ui.TITLE_H);
+        bar := float(OPEN_H) + float(ui.GAP);
+        size.w   = i32((fw - pad - pad) * e);
+        size.h   = i32((fh - pad - th - pad - bar) * e);
         screen.x = i32(a.x - (fw * 0.5 - pad) * e);
         screen.y = i32(a.y - (fh + gap - pad - th) * e);
       };

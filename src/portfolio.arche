@@ -1,4 +1,4 @@
-#import { gfx camera vec os text ui panel textedit textview button compiler rigid
+#import { gfx camera vec os text ui panel textedit textview button embed compiler rigid
           "./render" "./physics" "./camview" "./input" "./playground" "./cards" }
 
 H            :: 1080;
@@ -19,6 +19,8 @@ PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
 PW           :: 102;
 
+WORLD_LMAG  :: 3800.0;
+WORLD_R     :: 10000.0;
 WALL_TOP    :: 940.0;
 JUMP        :: 13.0;
 KEY_UP      :: 1002;
@@ -107,6 +109,14 @@ fpress :: int;
 fcam   :: int;
 tax    :: int;
 tjump  :: int;
+wpx    :: float;
+wpy    :: float;
+whw    :: int;
+whh    :: int;
+wcol   :: int;
+wdir   :: int;
+wsx    :: int;
+wsy    :: int;
 kw     :: int;
 kh     :: int;
 kcol   :: int;
@@ -115,11 +125,22 @@ ksy    :: int;
 iwx    :: float;
 iwy    :: float;
 iprog  :: float;
+iw     :: float;
+ih     :: float;
+ipin   :: int;
+elen   :: int;
+ellen  :: int;
+ekind  :: int;
+efocus :: int;
+epanel :: int;
+eopen  :: int;
+ebtn   :: int;
 awake  :: int;
 
 Back  :: arche { pos, kw, kh, kcol, ksx, ksy }
 Prop  :: arche { pos, rw, rh, rcolor, plx, rx, ry }
 Hill  :: arche { hpx, hpy, hhw, hht, hcol, hsx, hsy }
+Wedge :: arche { wpx, wpy, whw, whh, wcol, wdir, wsx, wsy }
 Round :: arche { cpx, cpy, crad, ccol, cplx, csx, csy }
 Box         :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake, home, hrot, bsx, bsy, bhw, bhh, bcol }
 Ball        :: arche { pos, lvel, spin, rot, ext, mi, mat, dimp, dang, cor, sup, awake, home, hrot, qsx, qsy, qr, qcol }
@@ -132,8 +153,9 @@ Framebuffer :: arche { framebuffer :: [MAXW * H]int }
 Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
 [4]Back(1);
-[30]Prop(6);
+[48]Prop(6);
 [6]Hill(3);
+[8]Wedge ?abort;
 [8]Round(6);
 [16]Box(8);
 [12]Ball(5);
@@ -145,7 +167,7 @@ Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol
 [1]Window ?abort;
 [1]Framebuffer(1);
 [1]Camera(1);
-[16]Sign ?abort;
+[24]Sign ?abort;
 [1]Closed;
 
 PANEL_WX :: 700.0;
@@ -167,6 +189,10 @@ BTN_LEFT  :: 1;
 BTN_RIGHT :: 2;
 BTN_JUMP  :: 3;
 BTN_RESET :: 4;
+BTN_OPEN0 :: 5;
+BTN_OPEN1 :: 6;
+BTN_OPEN2 :: 7;
+BTN_OPEN3 :: 8;
 PAD_VMIN  :: 18;
 PAD_GAPV  :: 2;
 PAD_BOTV  :: 5;
@@ -177,12 +203,31 @@ ED_FG  :: 0xcdd6f4;
 OUT_BG :: 0x11151f;
 OUT_FG :: 0xa6e3a1;
 
-INFO_W     :: 900;
+INFO_W     :: 900.0;
 INFO_WFRAC :: 0.9;
-INFO_H     :: 360;
+INFO_H     :: 360.0;
 INFO_RANGE :: 220.0;
 INFO_LERP  :: 0.18;
 INFO_GAP   :: 40;
+
+EMB_W   :: 1000.0;
+EMB_H   :: 480.0;
+OPEN_W  :: 170;
+OPEN_H  :: 40;
+EMB_WY  :: 740.0;
+SITE_W  :: 900.0;
+SITE_H  :: 240.0;
+EMB_WX0 :: 3300.0;
+EMB_WX1 :: 4500.0;
+EMB_WX2 :: 5700.0;
+EMB_WX3 :: 6900.0;
+CARD_WY :: 985.0;
+
+TAIL_X0 :: 7800.0;
+TAIL_X1 :: 8400.0;
+TAIL_X2 :: 9000.0;
+ARROW_L :: 1700.0;
+ARROW_R :: 2500.0;
 
 POST_COL   :: 0x4b5183;
 BOARD_EDGE :: 0x3f4570;
@@ -202,6 +247,23 @@ INFO_B3 :: 4;
 INFO_B5 :: 6;
 INFO_B6 :: 7;
 
+EMB_P0 :: 9;
+EMB_P1 :: 10;
+EMB_P2 :: 11;
+EMB_P3 :: 12;
+SITE_P0 :: 13;
+SITE_P1 :: 14;
+SITE_P2 :: 15;
+SITE_P3 :: 16;
+SITE_B0 :: 8;
+SITE_B1 :: 9;
+SITE_B2 :: 10;
+SITE_B3 :: 11;
+EMB_0 :: 0;
+EMB_1 :: 1;
+EMB_2 :: 2;
+EMB_3 :: 3;
+
 Panel  :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view }
 Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
 Output :: arche { bid, screen, size, output :: [4096]char, len, view, bg, fg }
@@ -219,14 +281,18 @@ Button :: arche {
   mouse_down,
   view,
 }
-InfoPanel :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog }
-InfoBody  :: arche { bid, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog }
+SiteButton :: arche { bid, layer, screen, size, label :: [8]char, len, clicked, held, wasdown, mouse, mouse_down, view, iwx, iwy, iw, ih }
+InfoPanel :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog, iw, ih, ipin }
+InfoBody  :: arche { bid, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog, iw, ih, ipin }
+Embed     :: arche { bid, screen, size, view, esrc :: [96]char, elen, elink :: [96]char, ellen, ekind, iwx, iwy, iprog, iw, ih, ipin, efocus, epanel, eopen, ebtn }
 [4]Panel ?abort;
 [2]Editor ?abort;
 [2]Output ?abort;
 [8]Button ?abort;
-[6]InfoPanel ?abort;
-[6]InfoBody ?abort;
+[4]SiteButton ?abort;
+[16]InfoPanel ?abort;
+[12]InfoBody ?abort;
+[4]Embed ?abort;
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
@@ -241,9 +307,9 @@ seed :: system {
   Prop.rcolor = { S1, S2, S3, S4, S5, S6 };
   Prop.plx    = { 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375 };
 
-  Back.pos.x = { 2100.0 };
+  Back.pos.x = { 3200.0 };
   Back.pos.y = { 1440.0 };
-  Back.kw    = { 12000 };
+  Back.kw    = { 14200 };
   Back.kh    = { 600 };
   Back.kcol  = { FLOOR };
   Back.ksx   = { 0 };
@@ -357,7 +423,7 @@ seed_arena :: system {
   Ball.awake = { 1, 1, 1, 1, 1 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB, BALLA };
 
-  Solid.pos.x  = { 2100.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
+  Solid.pos.x  = { 3200.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
   Solid.pos.y  = { 1190.0,  1040.0,       1040.0,       1022.0,       1115.0,       1090.0,       1065.0 };
   Solid.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
@@ -365,7 +431,7 @@ seed_arena :: system {
   Solid.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.rot.x  = { 1.0, 1.0, 1.0, 0.819, 1.0, 1.0, 1.0 };
   Solid.rot.y  = { 0.0, 0.0, 0.0, 0.574, 0.0, 0.0, 0.0 };
-  Solid.ext.x  = { 6000.0, 10.0,  60.0,  244.0, 50.0, 50.0, 50.0 };
+  Solid.ext.x  = { 7100.0, 10.0,  60.0,  244.0, 50.0, 50.0, 50.0 };
   Solid.ext.y  = { 50.0,   100.0, 100.0, 18.0,  25.0, 50.0, 75.0 };
   Solid.mi.x   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.mi.y   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
@@ -639,45 +705,98 @@ seed_playground :: system eff {
 seed_cards :: system eff {
   insert(Prop { pos: (2100.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3000.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (200.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (4800.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3600.0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X2, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X1, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX0, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX1, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX2, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX3, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_L, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_R, 1110.0), rw: 24, rh: 60, rcolor: POST_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_L + 44.0, 1035.0), rw: 208, rh: 86, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_R - 44.0, 1035.0), rw: 208, rh: 86, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_L + 40.0, 1035.0), rw: 200, rh: 70, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (ARROW_R - 40.0, 1035.0), rw: 200, rh: 70, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Prop { pos: (2100.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3000.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (200.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (4800.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3600.0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X2, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X1, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX0, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX1, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX2, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX3, 1035.0), rw: 276, rh: 106, rcolor: BOARD_EDGE, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Prop { pos: (2100.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos:  (900.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3000.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (200.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (4800.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
-  insert(Prop { pos: (3600.0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X2, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (TAIL_X1, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX0, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX1, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX2, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
+  insert(Prop { pos: (EMB_WX3, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
   insert(Sign { twx: 2100.0, twy: 1027.0, tplx: 1.0, tstr: "ABOUT",         tlen:  5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx:  900.0, twy: 1027.0, tplx: 1.0, tstr: "ARCHE + WASM",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 3000.0, twy: 1027.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X0, twy: 1027.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
   insert(Sign { twx: 200.0, twy: 1027.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 4800.0, twy: 1027.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 3600.0, twy: 1027.0, tplx: 1.0, tstr: "THE LANGUAGE",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X2, twy: 1027.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X1, twy: 1027.0, tplx: 1.0, tstr: "THE LANGUAGE",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX0, twy: 1027.0, tplx: 1.0, tstr: "2018", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX1, twy: 1027.0, tplx: 1.0, tstr: "2019", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX2, twy: 1027.0, tplx: 1.0, tstr: "2022", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX3, twy: 1027.0, tplx: 1.0, tstr: "2026", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_L, twy: 1027.0, tplx: 1.0, tstr: "DEMOS",    tlen: 5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_R, twy: 1027.0, tplx: 1.0, tstr: "TIMELINE", tlen: 8, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
 
-  insert(InfoPanel { bid: INFO_P0, layer: 1, screen: (0,0), size: (0,0), title: "ABOUT THIS SITE", len: 15, sub: "built from the language up",       sublen: 26, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P1, layer: 1, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P2, layer: 1, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: 3000.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P5, layer: 1, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: 4800.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P6, layer: 1, screen: (0,0), size: (0,0), title: "THE LANGUAGE",  len: 12, sub: "static, data-oriented, no heap",   sublen: 30, view: (0,0), iwx: 3600.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
+  insert(Wedge { wpx: ARROW_L - 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 0 - 1, wsx: 0, wsy: 0 })(_:, _ok:);
+  insert(Wedge { wpx: ARROW_R + 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 1, wsx: 0, wsy: 0 })(_:, _ok:);
+  insert(Wedge { wpx: ARROW_L - 60.0, wpy: 1035.0, whw: 80, whh: 53, wcol: BOARD_COL, wdir: 0 - 1, wsx: 0, wsy: 0 })(_:, _ok:);
+  insert(Wedge { wpx: ARROW_R + 60.0, wpy: 1035.0, whw: 80, whh: 53, wcol: BOARD_COL, wdir: 1, wsx: 0, wsy: 0 })(_:, _ok:);
 
-  insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: 3000.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n8 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: 4800.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B6, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: 3600.0, iwy: 985.0, iprog: 0.0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P0, layer: 1, screen: (0,0), size: (0,0), title: "ABOUT THIS SITE", len: 15, sub: "built from the language up",       sublen: 26, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P1, layer: 1, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P2, layer: 1, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P5, layer: 1, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P6, layer: 1, screen: (0,0), size: (0,0), title: "THE LANGUAGE",  len: 12, sub: "static, data-oriented, no heap",   sublen: 30, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+
+  insert(InfoPanel { bid: EMB_P0, layer: 1, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "2018.curtreyes.com/portfolio", sublen: 28, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P1, layer: 1, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "2018.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P2, layer: 1, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "2022.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P3, layer: 1, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "you are here",                 sublen: 12, view: (0,0), iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+
+  insert(InfoPanel { bid: SITE_P0, layer: 1, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "pure html, css, js",    sublen: 18, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P1, layer: 1, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "bootstrap, unfinished", sublen: 21, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P2, layer: 1, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "wordpress",             sublen:  9, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P3, layer: 1, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "arche, wasm, WIP",      sublen: 16, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+
+  insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n8 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B6, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+
+  insert(InfoBody { bid: SITE_B0, screen: (0,0), size: (0,0), output: "Made with pure HTML, CSS and JS, during\nhigh school. No framework, no build step.\n\nClick the sparkles to start. Arrow keys to\nmove. Enter to go into doors and see my games.", len: 0, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B1, screen: (0,0), size: (0,0), output: "Made a year later, for a more traditional\nportfolio. Built with Bootstrap.\n\nI never finished it.", len: 0, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B2, screen: (0,0), size: (0,0), output: "Made after working as a web designer.\nBuilt on Wordpress.\n\nShown as a screenshot, not live: its TLS\ncertificate is expired, so a browser will\nnot frame it. Click it to open the site.", len: 0, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B3, screen: (0,0), size: (0,0), output: "The site you are walking through now.\n\nMade with arche, my own language, compiled\nto WebAssembly. The same source also runs\nnatively.\n\nStill a work in progress.", len: 0, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+
+  insert(Embed { bid: EMB_0, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/portfolio/", elen: 0, elink: "https://2018.curtreyes.com/portfolio/",                          ellen: 0, ekind: 0, iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P0, eopen: 0, ebtn: BTN_OPEN0 })(_:, _ok:);
+  insert(Embed { bid: EMB_1, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/",           elen: 0, elink: "https://2018.curtreyes.com/",                          ellen: 0, ekind: 0, iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P1, eopen: 0, ebtn: BTN_OPEN1 })(_:, _ok:);
+  insert(Embed { bid: EMB_2, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2022.png",                        elen: 0, elink: "http://2022.curtreyes.com", ellen: 0, ekind: 1, iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P2, eopen: 0, ebtn: BTN_OPEN2 })(_:, _ok:);
+  insert(Embed { bid: EMB_3, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2026.png",                        elen: 0, elink: "",                          ellen: 0, ekind: 1, iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P3, eopen: 0, ebtn: 0 - 1 })(_:, _ok:);
+
+  insert(SiteButton { bid: BTN_OPEN0, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN1, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN2, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
 }
 
 #run {
@@ -701,9 +820,12 @@ seed_cards :: system eff {
             pan,
             cam_push,
             cam_center,
+            cam_center_site,
             layout,
             focus_input,
             focus_claim,
+            embed.poll,
+            embed_focus,
             focus_release,
             focus_sync,
             sim_awake,
@@ -722,8 +844,10 @@ seed_cards :: system eff {
             sync_player_ppx,
             info_open,
             info_layout,
+            site_btn_layout,
             ui_input,
             project,
+            project_wedge,
             project_hill,
             project_round,
             project_box,
@@ -736,6 +860,7 @@ seed_cards :: system eff {
             draw_hills,
             draw_round,
             gfx.rect,
+            draw_wedge,
             text.render,
             panel.render_bg,
             button.render_bg,
@@ -749,6 +874,8 @@ seed_cards :: system eff {
             textedit.text,
             textedit.poll_run,
             button.poll,
+            site_open,
+            embed.open,
             run_button,
             reset_arena,
             run_it,
@@ -756,6 +883,7 @@ seed_cards :: system eff {
             textedit.render,
             button.render,
             textview.render,
+            embed.render,
             gfx.present,
             gfx.poll,
             done,

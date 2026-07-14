@@ -37,6 +37,7 @@ Everything lives in **`src/portfolio.arche`** — one file, no code comments by 
 | [rendering.md](docs/rendering.md) | draw order, the layer system, the DOM-text caveat |
 | [mobile.md](docs/mobile.md) | touch controls, the `button` device, coarse-pointer detection |
 | [arche-gotchas.md](docs/arche-gotchas.md) | compiler workarounds that look like mistakes and are not |
+| [embeds.md](docs/embeds.md) | the old sites in the world: live iframe vs. screenshot, and why |
 | [scenery.md](docs/scenery.md) | art direction and palette |
 
 ## Editing the content
@@ -44,5 +45,8 @@ Everything lives in **`src/portfolio.arche`** — one file, no code comments by 
 - **The signs** — `seed_text` inserts each `Sign` with a world anchor `twx/twy`, parallax `tplx`, size and
   colour. `twx < 2100` is left of the start.
 - **The playground's spot** — `PANEL_WX` / `PANEL_WY`.
+- **The old sites** — `Embed` seeds the three cards on the right (`EMB_WX0/1/2`). `ekind: 0` embeds the site
+  live; `ekind: 1` shows a screenshot that links out. See [embeds.md](docs/embeds.md) — which one a site gets
+  is decided by its TLS and framing headers, not by taste.
 - **The sandbox** — `Solid` seeds the walls, ramp and stairs; `Box`/`Ball` the loose bodies.
 - **The palette** — one block of colour constants at the top.

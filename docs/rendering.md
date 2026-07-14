@@ -103,8 +103,9 @@ too tall).
 | Archetype | Role |
 |---|---|
 | `Hill` | parallax triangles on the horizon |
+| `Wedge` | a triangle lying on its SIDE — a base of half-height `whh` tapering to a point `whw` away in `wdir` (−1 left, +1 right). `Hill` also rasterizes a triangle but only ever an upright one: it walks rows and widens, while this walks columns and narrows. It exists so the DEMOS / TIMELINE signposts can be arrow-*shaped*. Drawn after `gfx.rect` and before `text.render`, so a head sits behind its label. **An arrow is a shaft plus a head that is TALLER than the shaft** — that overhang is what gives it barbs. Put a *full-height* head on a *full-height* board and you get a pentagon, not an arrow. The shaft is a `Prop` rect 70 tall spanning ±60…∓140 of the post, and the head a `Wedge` based at ±60 with half-height 53, tip at ±140; each is seeded twice (a bigger `BOARD_EDGE` one under a `BOARD_COL` one) for the same 8px rim the other boards have. The shaft is offset *away* from the head so the whole sign is symmetric about its post — grow it only on the pointing side and the pair reads as lopsided. |
 | `Round` | clouds (parallax) and bushes (foreground), separated only by world y |
-| `Prop` | parallax buildings |
+| `Prop` | parallax buildings, and the signpost boards (post + edge + face) |
 | `Back` | the ground plane (a world-anchored flat rect) |
 | `Panel` | the playground (layer 1) and the sandbox frame (layer 0) — the same device, at two depths |
 | `Solid` | the container's static bodies, drawn straight from the physics (`sflag = 0` skips the world ground, which is 12000px wide and drawn by `Back`) |
