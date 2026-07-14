@@ -817,13 +817,17 @@
 // ==== /home/curt/Code/arche-portfolio/../arche/extras/ui/embed/dom/host.js ====
 // Browser host for the `embed` device's dom backend — SHIPS WITH THE DEVICE (co-located with backend.arche);
 // `arche build --arch=wasm32` collects it into <out>.hosts.js. The arche program owns no browser — it issues
-// `embed_be_render(bid, src, n, kind, x, y, w, h)` / `embed_be_link(bid, link, n)` calls that lower to wasm
-// imports THIS host fulfils by reconciling ONE real element per `bid`, absolutely positioned over the gfx
-// <canvas>: an <iframe> for a LIVE site (kind 0), or an <a target=_blank><img></a> for a SHOT (kind 1).
+// `embed_be_*` calls that lower to wasm imports THIS host fulfils by reconciling ONE real element per `bid`,
+// absolutely positioned over the gfx <canvas>: an <iframe> for a LIVE site (kind 0), or an <img> in a plain
+// <div> for a SHOT (kind 1).
 //
 // COORDINATES: identical to textview/dom — the driver's rect is already in RENDER pixels, so scale by
 // `rt._uiScale || innerHeight / renderH` and place absolutely. z-index 6 keeps a card above the foreground
 // panel (5) it visually sits in.
+//
+// A card is NOT a link, and it owns no controls. Opening the real site is a `button` — a driver-owned Button
+// row that the button device renders and reports `clicked` for, exactly like the playground's RUN. The driver
+// turns that click into `eopen`, and `embed_be_open` below is the only thing here that knows what a URL is.
 //
 // LAZY: the driver's cards are always open, so "has a non-zero rect" does NOT mean "the visitor is looking at
 // it" — every card has one from the first frame. What still separates them is WHERE that rect is: a card the
@@ -847,14 +851,19 @@
     seams(rt) {
       const self = this;
 
-      // A pointerdown outside every card hands the keyboard back to the world (see FOCUS above).
+      // A pointerdown outside the focused card hands the keyboard — and the camera — back to the world (see
+      // FOCUS above). This must release ANY focused card, not just an iframe: a shot is focusable too, and if
+      // it kept focus the driver would keep re-centring the camera on it every frame and never let go.
       const wireBlur = () => {
         if (self._blurWired || typeof addEventListener !== "function") return;
         self._blurWired = true;
         addEventListener("pointerdown", (e) => {
           const a = document.activeElement;
-          if (!a || a.tagName !== "IFRAME") return;
-          for (const c of self.cards.values()) if (c.el === e.target || c.el.contains(e.target)) return;
+          if (!a) return;
+          let owner = null;
+          for (const c of self.cards.values()) if (a === c.el || c.el.contains(a)) owner = c;
+          if (!owner) return;                                             // focus isn't on a card; not ours
+          if (owner.el === e.target || owner.el.contains(e.target)) return;   // clicked the card it's on
           a.blur();
           window.focus();
         }, true);
@@ -870,11 +879,16 @@
           const frame = "position:absolute;box-sizing:border-box;margin:0;overflow:hidden;" +
             "background:#11151f;border:1px solid #232838;border-radius:0.4em;";
           if (kind === 1) {
-            // SHOT: the picture is the link. `noopener` because the target is a plain external site.
-            el = document.createElement("a");
-            el.target = "_blank";
-            el.rel = "noopener";
-            el.style.cssText = frame + "display:block;cursor:pointer;";
+            // SHOT: a still picture of the site. Just a picture — it goes nowhere; the card's OPEN button does
+            // that, the same way it does for a live one.
+            //
+            // `tabindex` is what makes it FOCUSABLE, and focus is how a card tells the driver it was clicked
+            // (see `embed_be_focused`). A <div> takes no focus by default, so without this a shot could never
+            // bring the camera to itself the way a live embed does — clicking one would do nothing at all.
+            // No focus ring: the camera moving to the card is the feedback.
+            el = document.createElement("div");
+            el.tabIndex = 0;
+            el.style.cssText = frame + "display:block;outline:none;cursor:pointer;";
             inner = document.createElement("img");
             inner.style.cssText = "display:block;width:100%;height:100%;object-fit:cover;object-position:top center;";
             el.appendChild(inner);
@@ -897,8 +911,8 @@
       return {
         embed_be_render(bid, sPtr, n, kind, x, y, w, h) {
           const c = get(bid, kind);
-          // A zero-size rect is the DRIVER saying "not now" — hide it (the card is shut). Don't touch `src`:
-          // hiding must not unload a site the visitor already opened.
+          // A zero-size rect is the DRIVER saying "not now" — hide it. Don't touch `src`: hiding must not
+          // unload a site the visitor already opened.
           if (w <= 0 || h <= 0) { c.el.style.display = "none"; return; }
           c.el.style.display = "";
 
@@ -911,11 +925,7 @@
           c.el.style.height = ph + "px";
           c.el.style.pointerEvents = "auto";
 
-          // FETCH ONLY WHEN THE CAMERA BRINGS IT NEAR. These cards are always open, so "has a non-zero rect"
-          // no longer means "the visitor is looking at it" — every card has one from the first frame. What
-          // still distinguishes them is WHERE that rect is: a card the visitor hasn't walked to sits far off
-          // the side of the viewport. Load it one screen-width out, so it is ready by the time it scrolls in,
-          // and never unload — walking past twice must not re-fetch.
+          // See LAZY above: fetch once the card is within one screen-width of the viewport.
           if (c.src === null) {
             const m = window.innerWidth;
             const near = px < window.innerWidth + m && px + pw > -m &&
@@ -936,12 +946,12 @@
           return a && (a === c.el || c.el.contains(a)) ? 1 : 0;
         },
 
-        embed_be_link(bid, lPtr, n) {
-          const c = self.cards.get(bid);
-          // Only a SHOT has somewhere to go; a LIVE card IS the site.
-          if (!c || c.kind !== 1 || n <= 0) return;
-          const href = self.dec.decode(new Uint8Array(rt.memory().buffer, lPtr, n));
-          if (c.el.getAttribute("href") !== href) c.el.setAttribute("href", href);
+        // The driver says "open this one" (its OPEN button was clicked this frame) and hands over the URL.
+        // `noopener` — the target is a plain external site and must not get a handle on this window.
+        embed_be_open(lPtr, n) {
+          if (n <= 0) return;
+          const url = self.dec.decode(new Uint8Array(rt.memory().buffer, lPtr, n));
+          window.open(url, "_blank", "noopener,noreferrer");
         },
       };
     },

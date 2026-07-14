@@ -20,7 +20,7 @@ PLAYER_Y     :: 1089.0;
 PW           :: 102;
 
 WORLD_LMAG  :: 3800.0;
-WORLD_R     :: 12700.0;
+WORLD_R     :: 10000.0;
 WALL_TOP    :: 940.0;
 JUMP        :: 13.0;
 KEY_UP      :: 1002;
@@ -133,6 +133,8 @@ ellen  :: int;
 ekind  :: int;
 efocus :: int;
 epanel :: int;
+eopen  :: int;
+ebtn   :: int;
 awake  :: int;
 
 Back  :: arche { pos, kw, kh, kcol, ksx, ksy }
@@ -187,6 +189,10 @@ BTN_LEFT  :: 1;
 BTN_RIGHT :: 2;
 BTN_JUMP  :: 3;
 BTN_RESET :: 4;
+BTN_OPEN0 :: 5;
+BTN_OPEN1 :: 6;
+BTN_OPEN2 :: 7;
+BTN_OPEN3 :: 8;
 PAD_VMIN  :: 18;
 PAD_GAPV  :: 2;
 PAD_BOTV  :: 5;
@@ -205,19 +211,21 @@ INFO_LERP  :: 0.18;
 INFO_GAP   :: 40;
 
 EMB_W   :: 1000.0;
-EMB_H   :: 450.0;
+EMB_H   :: 480.0;
+OPEN_W  :: 170;
+OPEN_H  :: 40;
 EMB_WY  :: 740.0;
 SITE_W  :: 900.0;
 SITE_H  :: 240.0;
-EMB_WX0 :: 5600.0;
-EMB_WX1 :: 6800.0;
-EMB_WX2 :: 8000.0;
-EMB_WX3 :: 9200.0;
+EMB_WX0 :: 3300.0;
+EMB_WX1 :: 4500.0;
+EMB_WX2 :: 5700.0;
+EMB_WX3 :: 6900.0;
 CARD_WY :: 985.0;
 
-TAIL_X0 :: 10400.0;
-TAIL_X1 :: 11000.0;
-TAIL_X2 :: 11600.0;
+TAIL_X0 :: 7800.0;
+TAIL_X1 :: 8400.0;
+TAIL_X2 :: 9000.0;
 ARROW_L :: 1700.0;
 ARROW_R :: 2500.0;
 
@@ -273,13 +281,15 @@ Button :: arche {
   mouse_down,
   view,
 }
+SiteButton :: arche { bid, layer, screen, size, label :: [8]char, len, clicked, held, wasdown, mouse, mouse_down, view, iwx, iwy, iw, ih }
 InfoPanel :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog, iw, ih, ipin }
 InfoBody  :: arche { bid, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog, iw, ih, ipin }
-Embed     :: arche { bid, screen, size, view, esrc :: [96]char, elen, elink :: [96]char, ellen, ekind, iwx, iwy, iprog, iw, ih, ipin, efocus, epanel }
+Embed     :: arche { bid, screen, size, view, esrc :: [96]char, elen, elink :: [96]char, ellen, ekind, iwx, iwy, iprog, iw, ih, ipin, efocus, epanel, eopen, ebtn }
 [4]Panel ?abort;
 [2]Editor ?abort;
 [2]Output ?abort;
 [8]Button ?abort;
+[4]SiteButton ?abort;
 [16]InfoPanel ?abort;
 [12]InfoBody ?abort;
 [4]Embed ?abort;
@@ -297,9 +307,9 @@ seed :: system {
   Prop.rcolor = { S1, S2, S3, S4, S5, S6 };
   Prop.plx    = { 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375 };
 
-  Back.pos.x = { 4550.0 };
+  Back.pos.x = { 3200.0 };
   Back.pos.y = { 1440.0 };
-  Back.kw    = { 16900 };
+  Back.kw    = { 14200 };
   Back.kh    = { 600 };
   Back.kcol  = { FLOOR };
   Back.ksx   = { 0 };
@@ -413,7 +423,7 @@ seed_arena :: system {
   Ball.awake = { 1, 1, 1, 1, 1 };
   Ball.qcol   = { BALLA, BALLB, BALLA, BALLB, BALLA };
 
-  Solid.pos.x  = { 4550.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
+  Solid.pos.x  = { 3200.0,  0.0 - 490.0,  0.0 - 1760.0, 0.0 - 310.0,  0.0 - 1450.0, 0.0 - 1550.0, 0.0 - 1650.0 };
   Solid.pos.y  = { 1190.0,  1040.0,       1040.0,       1022.0,       1115.0,       1090.0,       1065.0 };
   Solid.lvel.x = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.lvel.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
@@ -421,7 +431,7 @@ seed_arena :: system {
   Solid.spin.y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.rot.x  = { 1.0, 1.0, 1.0, 0.819, 1.0, 1.0, 1.0 };
   Solid.rot.y  = { 0.0, 0.0, 0.0, 0.574, 0.0, 0.0, 0.0 };
-  Solid.ext.x  = { 8450.0, 10.0,  60.0,  244.0, 50.0, 50.0, 50.0 };
+  Solid.ext.x  = { 7100.0, 10.0,  60.0,  244.0, 50.0, 50.0, 50.0 };
   Solid.ext.y  = { 50.0,   100.0, 100.0, 18.0,  25.0, 50.0, 75.0 };
   Solid.mi.x   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
   Solid.mi.y   = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
@@ -779,10 +789,14 @@ seed_cards :: system eff {
   insert(InfoBody { bid: SITE_B2, screen: (0,0), size: (0,0), output: "Made after working as a web designer.\nBuilt on Wordpress.\n\nShown as a screenshot, not live: its TLS\ncertificate is expired, so a browser will\nnot frame it. Click it to open the site.", len: 0, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
   insert(InfoBody { bid: SITE_B3, screen: (0,0), size: (0,0), output: "The site you are walking through now.\n\nMade with arche, my own language, compiled\nto WebAssembly. The same source also runs\nnatively.\n\nStill a work in progress.", len: 0, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
 
-  insert(Embed { bid: EMB_0, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/portfolio/", elen: 0, elink: "",                          ellen: 0, ekind: 0, iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P0 })(_:, _ok:);
-  insert(Embed { bid: EMB_1, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/",           elen: 0, elink: "",                          ellen: 0, ekind: 0, iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P1 })(_:, _ok:);
-  insert(Embed { bid: EMB_2, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2022.png",                        elen: 0, elink: "http://2022.curtreyes.com", ellen: 0, ekind: 1, iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P2 })(_:, _ok:);
-  insert(Embed { bid: EMB_3, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2026.png",                        elen: 0, elink: "",                          ellen: 0, ekind: 1, iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P3 })(_:, _ok:);
+  insert(Embed { bid: EMB_0, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/portfolio/", elen: 0, elink: "https://2018.curtreyes.com/portfolio/",                          ellen: 0, ekind: 0, iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P0, eopen: 0, ebtn: BTN_OPEN0 })(_:, _ok:);
+  insert(Embed { bid: EMB_1, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/",           elen: 0, elink: "https://2018.curtreyes.com/",                          ellen: 0, ekind: 0, iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P1, eopen: 0, ebtn: BTN_OPEN1 })(_:, _ok:);
+  insert(Embed { bid: EMB_2, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2022.png",                        elen: 0, elink: "http://2022.curtreyes.com", ellen: 0, ekind: 1, iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P2, eopen: 0, ebtn: BTN_OPEN2 })(_:, _ok:);
+  insert(Embed { bid: EMB_3, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2026.png",                        elen: 0, elink: "",                          ellen: 0, ekind: 1, iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P3, eopen: 0, ebtn: 0 - 1 })(_:, _ok:);
+
+  insert(SiteButton { bid: BTN_OPEN0, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN1, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN2, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
 }
 
 #run {
@@ -830,6 +844,7 @@ seed_cards :: system eff {
             sync_player_ppx,
             info_open,
             info_layout,
+            site_btn_layout,
             ui_input,
             project,
             project_wedge,
@@ -859,6 +874,8 @@ seed_cards :: system eff {
             textedit.text,
             textedit.poll_run,
             button.poll,
+            site_open,
+            embed.open,
             run_button,
             reset_arena,
             run_it,

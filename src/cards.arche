@@ -36,6 +36,42 @@ info_open :: system eff {
   };
 }
 
+// The site cards' OPEN buttons ride their panels. `label` + `iwx` picks out SiteButton (a plain Button has no
+// world anchor), and the anchor is the panel's, so the button is placed from exactly the rect `info_layout`
+// gives the panel: bottom-right of it, inside the padding, in the strip the embed leaves free.
+site_btn_layout :: system eff {
+  map (query { handle }) eff {
+    gfx.dims(handle)(vw:, vh:);
+    map (query { eye, zoom }) eff {
+      map (query { label, iwx, iwy, iw, ih, screen, size })(screen, size) eff {
+        a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
+        cap := INFO_WFRAC * float(vw);
+        fw  := select(iw < cap, iw, cap);
+        gap := float(INFO_GAP);
+        pad := float(ui.PAD);
+        screen.x = i32(a.x + fw * 0.5 - pad - float(OPEN_W));
+        screen.y = i32(a.y - gap - pad - float(OPEN_H));
+        size.w   = OPEN_W;
+        size.h   = OPEN_H;
+      };
+    };
+  };
+}
+
+// A button is a PRODUCER of `clicked`; the embed device is a CONSUMER of `eopen`. This is the wire between
+// them — the same shape as the playground's `run_button`, which turns BTN_RUN's click into a compile.
+// `eopen` is cleared first, so it is a one-frame pulse and a held button does not reopen the site every frame.
+site_open :: system eff {
+  map (query { ebtn, eopen })(eopen) eff {
+    eopen = 0;
+  };
+  map (query { bid, label, clicked }) eff {
+    map (query { ebtn, eopen })(eopen) eff {
+      eopen = select(clicked == 1 && ebtn == bid, 1, eopen);
+    };
+  };
+}
+
 // Click into a site and the camera comes to it — the same move the playground makes when its editor takes the
 // keyboard. The embed device wrote `efocus` from the browser's own focus, which is the only way to know: a card
 // is a DOM element ABOVE the gfx canvas, so a click on it never reaches the canvas mouse listeners that
@@ -81,6 +117,9 @@ info_layout :: system eff {
         screen.x = i32(a.x - (fw * 0.5 - pad) * e);
         screen.y = i32(a.y - (fh + gap - pad - th) * e);
       };
+      // The embed stops SHORT of the panel's bottom edge, leaving a strip for the OPEN button — the same shape
+      // the playground has (editor on top, RUN underneath). Without the strip the button would have to sit on
+      // top of the site, which is not a button on a panel, it is a sticker on a website.
       map (query { esrc, iwx, iwy, iprog, iw, ih, screen, size })(screen, size) eff {
         a   := camera.to_screen(vec.mk(iwx, iwy), eye, zoom, vec.mk(float(vw) * 0.5, float(vh) * 0.5));
         e   := iprog;
@@ -90,8 +129,9 @@ info_layout :: system eff {
         gap := float(INFO_GAP);
         pad := float(ui.PAD);
         th  := float(ui.TITLE_H);
+        bar := float(OPEN_H) + float(ui.GAP);
         size.w   = i32((fw - pad - pad) * e);
-        size.h   = i32((fh - pad - th - pad) * e);
+        size.h   = i32((fh - pad - th - pad - bar) * e);
         screen.x = i32(a.x - (fw * 0.5 - pad) * e);
         screen.y = i32(a.y - (fh + gap - pad - th) * e);
       };
