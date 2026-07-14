@@ -927,6 +927,15 @@
           }
         },
 
+        // Which card holds focus? The browser focuses whatever element was clicked, including a cross-origin
+        // iframe, so `document.activeElement` IS the answer — no click plumbing of our own. 1/0 per bid.
+        embed_be_focused(bid) {
+          const c = self.cards.get(bid);
+          if (!c) return 0;
+          const a = document.activeElement;
+          return a && (a === c.el || c.el.contains(a)) ? 1 : 0;
+        },
+
         embed_be_link(bid, lPtr, n) {
           const c = self.cards.get(bid);
           // Only a SHOT has somewhere to go; a LIVE card IS the site.

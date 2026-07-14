@@ -1,5 +1,21 @@
 # The site timeline — the old sites, in the world
 
+**Where things are.** Two arrow signposts flank ABOUT at spawn and name the two directions, which is the same
+split the ABOUT card describes:
+
+```
+  <- DEMOS        ABOUT        TIMELINE ->
+  sandbox                      2018  2019  2022  2026        DATA-ORIENTED
+  playground                   (the site panels)             THE LANGUAGE
+                                                             SAY HELLO
+  x < 2100        2100         5600 … 9200                   10400 … 11600
+```
+
+The three explainer signposts (`TAIL_X0…2`) sit **after** the timeline, so walking right reads as: here is who
+I am → here is what I made, oldest first → here is how this one works → say hello. Nothing stands between
+ABOUT and 2018 any more; that stretch is a deliberately empty walk into the timeline.
+
+
 The right-hand side of the world is a timeline of the previous versions of this site. Each one is built the
 same way the **playground** is: the site gets **its own always-visible panel**, and a **signpost on the ground**
 is what carries the information about it.
@@ -84,6 +100,32 @@ forever after. Walking past twice does not re-fetch, and does not lose the embed
 
 Verified: nothing is requested from `curtreyes.com` at page load.
 
+## Clicking a site brings the camera to it
+
+Same move the playground makes when its editor takes the keyboard: click into a site and the camera eases until
+that panel is centred, so you are looking at the site rather than at the world with a site in the corner.
+
+Getting the click is the whole problem. A card is a **DOM element above the gfx `<canvas>`**, and gfx binds its
+mouse listeners to the canvas — so a click on a card never reaches the canvas at all, and `focus_claim`'s
+screen-rect hit test can never see it. (This is also why the playground doesn't use `focus_claim` for its
+editor; it reads `gfx.text_focus`.)
+
+The browser knows, though — it focuses whatever was clicked, cross-origin iframe included. So the embed device
+reads `document.activeElement` and writes it back as a column, `efocus`, exactly like button's `clicked`: *a
+producer writes a column, a consumer reads it*. The driver's `embed_focus` (in `cards.arche`) turns that into
+`fcam = epanel + 1`, and `cam_center_site` (in `camview.arche`) frames it.
+
+`cam_center_site` is a **second** system rather than a branch in `cam_center`, because the two kinds of panel
+know where they are in different ways: the playground and sandbox have compile-time constant spots, while a site
+panel carries its own world anchor (`iwx`/`iwy`). Note the trap it fixes — `cam_center`'s query
+`{bid, title, size}` *also matches every InfoPanel*, since an InfoPanel is a superset of a Panel. Without the
+`fixed` bid check now guarding it, focusing a site panel would have yanked the camera to the playground's
+coordinates. Querying `ipin` keeps `cam_center_site` to the pinned site panels: a proximity info card is text,
+not a destination, and must not steal the camera.
+
+Nothing new is needed to give the camera back. Clicking the world clears `fcam` (`focus_input`), and so does
+walking off the edge of the view (`focus_release`).
+
 ## Focus — clicking a live embed takes your arrow keys
 
 An iframe is a separate document. Click into a cross-origin one and focus leaves this page, so the arrow keys go
@@ -100,8 +142,8 @@ straight into it.
 
 Two things fix it, and you need both:
 
-- The ground (`Solid[0]`) and the floor band (`Back`) span **x = −3900 … 10300**, well past the last card.
-- `clamp_player` (in `camview.arche`) also clamps the player to **`WORLD_LMAG` … `WORLD_R`** (−3800 … 10000),
+- The ground (`Solid[0]`) and the floor band (`Back`) span **x = −3900 … 13000**, well past the last signpost.
+- `clamp_player` (in `camview.arche`) also clamps the player to **`WORLD_LMAG` … `WORLD_R`** (−3800 … 12700),
   *inside* the floor. Widening the ground alone only moves the cliff — a finite floor always has an end. The
   clamp is what means there is no edge to fall off, on either side.
 
