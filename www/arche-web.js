@@ -56,10 +56,24 @@
     const { instance } = await WebAssembly.instantiate(bytes, Object.assign({}, wasi.imports, { env }));
     const ex = instance.exports;
     rt._mem = wasi.memory = ex.memory;
-    if (typeof ex.arche_frame === "function") { // reactor: init once, then a frame per rAF
+    if (typeof ex.arche_frame === "function") { // reactor: init once, then fixed-timestep sim per rAF
       if (typeof ex._initialize === "function") ex._initialize();
       if (typeof ex.arche_run === "function") ex.arche_run();
-      const tick = () => { if (rt._stopped) return; try { ex.arche_frame(); } catch (e) { rt._stopped = true; return; } rt._raf = requestAnimationFrame(tick); };
+      // arche_frame advances the world by a FIXED step, so driving it once per rAF ties world speed to the
+      // display's refresh rate: a 120Hz phone runs 2x fast, and a rAF catch-up burst after a stall lurches it
+      // forward faster than any steady rate. Accumulate real elapsed time instead and step in fixed slices.
+      const STEP = 1000 / 60;   // wall-clock ms one arche_frame represents
+      const MAX_STEPS = 5;      // catch-up clamp: drop time after a stall rather than fast-forwarding (anti spiral-of-death)
+      const now = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+      let last = now(), acc = 0;
+      const tick = () => {
+        if (rt._stopped) return;
+        const t = now(); acc += t - last; last = t;
+        if (acc > STEP * MAX_STEPS) acc = STEP * MAX_STEPS;
+        try { let n = 0; while (acc >= STEP && n < MAX_STEPS) { ex.arche_frame(); acc -= STEP; n++; } }
+        catch (e) { rt._stopped = true; return; }
+        rt._raf = requestAnimationFrame(tick);
+      };
       rt._raf = requestAnimationFrame(tick);
     } else { // command: run once
       try { ex._start(); } catch (e) { if (!(e instanceof WasiExit) || e.code !== 0) { rt.stdout = wasi.stdout; throw e; } }
