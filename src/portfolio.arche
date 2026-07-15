@@ -179,6 +179,7 @@ BTN_H    :: 76;
 
 PANEL_PLAY :: 0;
 PANEL_SAND :: 1;
+OUT_BID    :: 0;
 SAND_WX   :: 1880.0;
 SAND_WY   :: 640.0;
 SAND_W    :: 1840;
@@ -610,7 +611,7 @@ seed_playground :: system eff {
   )(_:, _ok:);
   insert(
     Output {
-      bid    : 0,
+      bid    : OUT_BID,
       screen : (0, 0),
       size   : (0, 0),
       output : "",
