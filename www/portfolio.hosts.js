@@ -346,7 +346,11 @@
         // The zeroing is the only per-pixel work the host does, and it is a plain fill.
         gfx_be_split(_win, pxPtr, w, h) {
           present(self.bg, pxPtr, w, h);
-          new Uint8Array(rt.memory().buffer, pxPtr, w * h * 4).fill(0);
+          // Zero the framebuffer so the foreground pass composites over the DOM (black = transparent sentinel).
+          // Fill as u32 (one write per pixel, not four) — the u8 fill of this ~9MB buffer sat on a slow path and
+          // was ~40% of the frame; the widened fill drops onto the engine's memset fast path. pxPtr is the base
+          // of the wasm int framebuffer, so it is 4-byte aligned as Uint32Array requires.
+          new Uint32Array(rt.memory().buffer, pxPtr, w * h).fill(0);
           self.cur = self.fg;
         },
         gfx_be_coarse_pointer() { return self.coarse; },
