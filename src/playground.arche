@@ -110,10 +110,12 @@ run_it :: system eff {
       for (; len < source.length && source[len] != 0; len += 1) {
       }
       n := len;
-      map (query { output, len })(len) eff {
-        compiler.run(source, n, output, output.length)(_:, output);
-        len = 0;
-        for (; len < output.length && output[len] != 0; len += 1) {
+      map (query { output, len, bid })(len) eff {
+        if (bid == OUT_BID) {
+          compiler.run(source, n, output, output.length)(_:, output);
+          len = 0;
+          for (; len < output.length && output[len] != 0; len += 1) {
+          }
         }
       };
     }
