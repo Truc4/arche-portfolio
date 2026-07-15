@@ -59,19 +59,20 @@
     if (typeof ex.arche_frame === "function") { // reactor: init once, then fixed-timestep sim per rAF
       if (typeof ex._initialize === "function") ex._initialize();
       if (typeof ex.arche_run === "function") ex.arche_run();
-      // arche_frame advances the world by a FIXED step, so driving it once per rAF ties world speed to the
-      // display's refresh rate: a 120Hz phone runs 2x fast, and a rAF catch-up burst after a stall lurches it
-      // forward faster than any steady rate. Accumulate real elapsed time instead and step in fixed slices.
-      const STEP = 1000 / 60;   // wall-clock ms one arche_frame represents
-      const MAX_STEPS = 5;      // catch-up clamp: drop time after a stall rather than fast-forwarding (anti spiral-of-death)
+      // arche_frame advances the world by a FIXED step AND renders in the SAME call — the two cannot be split
+      // from JS. Driving it once per rAF ties world speed to refresh rate: a 120Hz display runs 2x fast, and a
+      // rAF catch-up burst lurches ahead. So gate on accumulated REAL time and run AT MOST ONE frame per
+      // callback: a fast display skips callbacks to hold ~60 steps/s, while a slow one just runs every callback
+      // and dips below realtime (smooth). Running arche_frame N times to "catch up" is what must be avoided —
+      // because it renders, N calls multiply render cost and stutter instead of helping.
+      const STEP = 1000 / 60, MAX_ACC = STEP * 2;
       const now = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
       let last = now(), acc = 0;
       const tick = () => {
         if (rt._stopped) return;
         const t = now(); acc += t - last; last = t;
-        if (acc > STEP * MAX_STEPS) acc = STEP * MAX_STEPS;
-        try { let n = 0; while (acc >= STEP && n < MAX_STEPS) { ex.arche_frame(); acc -= STEP; n++; } }
-        catch (e) { rt._stopped = true; return; }
+        if (acc > MAX_ACC) acc = MAX_ACC;
+        if (acc >= STEP) { acc -= STEP; try { ex.arche_frame(); } catch (e) { rt._stopped = true; return; } }
         rt._raf = requestAnimationFrame(tick);
       };
       rt._raf = requestAnimationFrame(tick);
