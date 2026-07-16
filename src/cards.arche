@@ -17,21 +17,23 @@ measure_cards :: system eff {
 }
 
 info_open :: system eff {
-  map (query { ppx }) eff {
-    map (query { title, iwx, iprog, ipin })(iprog) eff {
-      near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
-      tgt  := select(ipin == 1, 1.0, near);
-      iprog = iprog + (tgt - iprog) * INFO_LERP;
-    };
-    map (query { output, iwx, iprog, ipin })(iprog) eff {
-      near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
-      tgt  := select(ipin == 1, 1.0, near);
-      iprog = iprog + (tgt - iprog) * INFO_LERP;
-    };
-    map (query { esrc, iwx, iprog, ipin })(iprog) eff {
-      near := select(vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
-      tgt  := select(ipin == 1, 1.0, near);
-      iprog = iprog + (tgt - iprog) * INFO_LERP;
+  map (query { fcam }) eff {
+    map (query { ppx }) eff {
+      map (query { title, iwx, iprog, ipin })(iprog) eff {
+        near := select(fcam == 0 && vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
+        tgt  := select(ipin == 1, 1.0, near);
+        iprog = iprog + (tgt - iprog) * INFO_LERP;
+      };
+      map (query { output, iwx, iprog, ipin })(iprog) eff {
+        near := select(fcam == 0 && vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
+        tgt  := select(ipin == 1, 1.0, near);
+        iprog = iprog + (tgt - iprog) * INFO_LERP;
+      };
+      map (query { esrc, iwx, iprog, ipin })(iprog) eff {
+        near := select(fcam == 0 && vec.absf(ppx - iwx) < INFO_RANGE, 1.0, 0.0);
+        tgt  := select(ipin == 1, 1.0, near);
+        iprog = iprog + (tgt - iprog) * INFO_LERP;
+      };
     };
   };
 }
