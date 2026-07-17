@@ -49,7 +49,7 @@ cam_center :: system eff {
           ey := select(coarse == 1, EYE_Y0_M, EYE_Y0);
           fixed := select(bid == PANEL_PLAY, 1, select(bid == PANEL_SAND, 1, 0));
           act := select(fcam == bid + 1 && fixed == 1, 1, 0);
-          idle := select(fcam == 0, 1, 0);
+          idle := select(fcam == 0 && bid == PANEL_PLAY, 1, 0);
           tx := select(act == 1, cx, eye.x);
           ty := select(act == 1, cy, select(idle == 1, ey, eye.y));
           eye.x = eye.x + (tx - eye.x) * CAM_LERP;

@@ -30,6 +30,6 @@ paint_fg :: system eff {
   };
 }
 
-paint_drain :: map (query { z } as r) eff {
+paint_drain :: map (query { ckind } as r) eff {
   delete(r)(_:);
 }
