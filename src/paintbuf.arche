@@ -1,0 +1,35 @@
+#import { ui paint }
+
+Cmd :: arche { z, ckind, crx, cry, crw, crh, ccolor, ctoff, ctlen, ctsz, cclx0, ccly0, cclx1, ccly1, cnl }
+[512]Cmd ?abort;
+TextArena :: arche { ach :: [16384]char, boff }
+[1]TextArena(1);
+DispatchCfg :: arche { zlo, zhi }
+[1]DispatchCfg(1);
+
+paint_reset :: system eff {
+  map (query { boff })(boff) eff {
+    boff = 0;
+  };
+}
+
+paint_order :: system eff {
+  sort(Cmd.z);
+}
+
+paint_bg :: system eff {
+  map (query { zlo, zhi })(zlo, zhi) eff {
+    zlo = 0 - 2000000000;
+    zhi = ui.SPLIT_Z;
+  };
+}
+paint_fg :: system eff {
+  map (query { zlo, zhi })(zlo, zhi) eff {
+    zlo = ui.SPLIT_Z;
+    zhi = 2000000000;
+  };
+}
+
+paint_drain :: map (query { ckind } as r) eff {
+  delete(r)(_:);
+}

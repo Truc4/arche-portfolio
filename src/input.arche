@@ -35,7 +35,7 @@ focus_input :: system eff {
         base := select(press == 1, FOCUS_WORLD, adopt);
         pad := select(tax != 0, 1, tjump);
         moving := select(dx != 0, 1, pad);
-        kb := select(moving == 1, FOCUS_WORLD, base);
+        kb := select(moving == 1 && fown != FOCUS_EDIT, FOCUS_WORLD, base);
         fown = kb;
         cleared := select(press == 1, 0, fcam);
         edit := select(kb == FOCUS_EDIT, PANEL_PLAY + 1, cleared);

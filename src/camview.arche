@@ -35,13 +35,6 @@ cam_push :: system eff {
   };
 }
 
-// `fcam` is "which panel owns the camera", stored as bid+1 so that 0 can mean nobody. Two maps, because the
-// two kinds of panel know where they are in two different ways.
-//
-// The first is the ORIGINAL: the playground and the sandbox, whose world spots are compile-time constants. Its
-// query {bid, title, size} also matches every InfoPanel (an InfoPanel is a superset of a Panel), so it MUST
-// check the bid is actually one of those two — otherwise a focused site panel would drag the camera to the
-// playground's coordinates. It also owns the idle case: when nobody holds the camera, ease `eye.y` back to rest.
 cam_center :: system eff {
   map (query { handle }) eff {
     gfx.coarse_pointer(handle)(coarse:);
@@ -56,7 +49,7 @@ cam_center :: system eff {
           ey := select(coarse == 1, EYE_Y0_M, EYE_Y0);
           fixed := select(bid == PANEL_PLAY, 1, select(bid == PANEL_SAND, 1, 0));
           act := select(fcam == bid + 1 && fixed == 1, 1, 0);
-          idle := select(fcam == 0, 1, 0);
+          idle := select(fcam == 0 && bid == PANEL_PLAY, 1, 0);
           tx := select(act == 1, cx, eye.x);
           ty := select(act == 1, cy, select(idle == 1, ey, eye.y));
           eye.x = eye.x + (tx - eye.x) * CAM_LERP;
@@ -67,10 +60,6 @@ cam_center :: system eff {
   };
 }
 
-// The second is the SITE PANELS, which carry their own world anchor (`iwx`/`iwy`) — so instead of a hardcoded
-// spot, centre on the panel the anchor describes. `iwy` is the anchor the panel hangs ABOVE (bottom edge sits
-// `INFO_GAP` above it), so the panel's middle is that much higher again. Querying `ipin` restricts this to the
-// pinned site panels — a proximity info card is text, not a destination, and must not steal the camera.
 cam_center_site :: system eff {
   map (query { bid, title, size, iwx, iwy, ipin }) eff {
     map (query { fcam }) eff {

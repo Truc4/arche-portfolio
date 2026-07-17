@@ -86,18 +86,20 @@
       // events must fall THROUGH it to the DOM and the background canvas beneath, or it would swallow every
       // click in the world.
       //
-      // z-index 3 leaves room for the host's DOM to stack UNDERNEATH it in a deliberate order (a driver's
-      // scenery text at 1, its background panels at 2), which is the whole point of the split: those layers
-      // must be occluded by the world's foreground, and DOM over a single canvas never can be.
+      // The two canvases' stacking is NOT hardcoded here: the driver sets it via gfx_be_layers (gfx.arche's
+      // `layers`), so the host owns no z-index constant. The foreground canvas ends up at the driver's SPLIT_Z,
+      // leaving room for the DOM (scenery text, background panels) to stack underneath it in the driver's own
+      // z order — the whole point of the split: those layers must be occluded by the world's foreground, and
+      // DOM over a single canvas never can be.
       let fc = document.getElementById("gfx-fg");
       if (!fc) {
         fc = document.createElement("canvas");
         fc.id = "gfx-fg";
-        fc.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3;";
+        fc.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;";
         (c.parentNode || host).appendChild(fc);
       }
       this.fg = mkSurface(fc, true);
-      if (c.style) { c.style.position = c.style.position || "absolute"; c.style.zIndex = "0"; }
+      if (c.style) { c.style.position = c.style.position || "absolute"; }
       this.cur = this.bg; // the surface the next present lands on; `split` flips it
       // CACHE the pointer-coarseness. A driver reads this every frame (often several times), and building a
       // fresh MediaQueryList per call is not free — under browser device EMULATION, which intercepts and
@@ -353,6 +355,15 @@
           new Uint32Array(rt.memory().buffer, pxPtr, w * h).fill(0);
           self.cur = self.fg;
         },
+        // The driver's ONE source of truth for stacking: echo bgz/fgz onto the two canvases, and publish fgz as
+        // rt._splitZ so the DOM element hosts (panel/button/embed/…) derive "am I below the foreground canvas?"
+        // from the same number instead of a private constant.
+        gfx_be_layers(_win, bgz, fgz) {
+          self.bg.canvas.style.zIndex = bgz;
+          self.fg.canvas.style.zIndex = fgz;
+          rt._splitZ = fgz;
+          return 0;
+        },
         gfx_be_coarse_pointer() { return self.coarse; },
         // Take the keyboard back for the world: blur the focused text field and focus the canvas. Also clear
         // the held axis — the blur means we will never see the keyup for anything currently held.
@@ -430,12 +441,15 @@
       };
 
       return {
-        // text_be_draw(x, y, sPtr, n, size, color): a []char lowers to (ptr, len) = (sPtr, n). REUSE the
+        // text_be_draw(x, y, sPtr, n, size, color, z): a []char lowers to (ptr, len) = (sPtr, n). REUSE the
         // pooled span at the cursor, update in place, advance. Rewriting textContent only on change keeps a
         // text selection alive across the per-frame redraw. Decode from wasm memory each call (it can grow and
-        // detach its ArrayBuffer). color is 0xRRGGBB.
-        text_be_draw(x, y, sPtr, n, size, color) {
+        // detach its ArrayBuffer). color is 0xRRGGBB. `z` is the driver's depth ordinal: the overlay div is
+        // position:fixed and so is its own stacking context, so the div carries z (its runs share one depth)
+        // to place scenery text in the ROOT stack — above the background canvas, below the panels above it.
+        text_be_draw(x, y, sPtr, n, size, color, z) {
           ensureLayer();
+          self.layer.style.zIndex = z;
           const str = self._dec.decode(new Uint8Array(rt.memory().buffer, sPtr, n));
           let rec = self.spans[self._cursor];
           if (!rec) {
@@ -479,7 +493,7 @@
     seams(rt) {
       const self = this;
 
-      const get = (bid, layer) => {
+      const get = (bid) => {
         let f = self.panels.get(bid);
         if (f) return f;
         // bid 0 keeps the id "ui-panel": the editor / output hosts reparent themselves into it BY THAT ID, so
@@ -490,20 +504,10 @@
           el = document.createElement("div");
           el.id = id;
           // No flexbox/padding: children are absolutely positioned from the driver's projected rects (the same
-          // `layout` the native window backend reads), so native + browser lay out identically.
-          //
-          // The z-index STRADDLES the two gfx canvases (see gfx.arche's `split`). A background panel gets 1 —
-          // above the background canvas, but BELOW the transparent foreground one, so the world's bodies draw
-          // over it. A foreground panel gets 5, above both. That is the whole trick: DOM always paints above a
-          // canvas, so the only way a DOM panel can sit behind the world is for the world to have a second
-          // canvas on top.
-          //
-          // A background panel is scenery, so it must not eat pointer events either — a click on it has to fall
-          // through to the world underneath it.
-          const isBg = layer === 0;
+          // `layout` the native window backend reads), so native + browser lay out identically. Depth (z-index)
+          // and pointer-events are set per-frame in panel_be_render from the driver's `z`, not baked here.
           el.style.cssText = "position:absolute;box-sizing:border-box;background:#0b0e14;" +
-            "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;" +
-            "z-index:" + (isBg ? 2 : 5) + ";" + (isBg ? "pointer-events:none;" : "");
+            "border:1px solid #232838;border-radius:0.6em;box-shadow:0 10px 34px rgba(0,0,0,0.5);overflow:hidden;";
           const t = document.createElement("div");
           t.id = id + "-title";
           t.style.cssText = "position:absolute;font:700 1.15em/1 ui-sans-serif,system-ui,sans-serif;" +
@@ -526,11 +530,13 @@
       };
 
       return {
-        panel_be_render(bid, layer, pass, x, y, w, h, ptr, n) {
-          // Not our pass: leave this panel entirely alone. Both passes see every row, so touching a panel that
-          // belongs to the other one would undo whatever it just did.
-          if (layer !== pass) return;
-          const f = get(bid, layer);
+        panel_be_render(bid, z, x, y, w, h, ptr, n) {
+          const f = get(bid);
+          // Depth is a straight echo of the driver's `z`. Below the foreground canvas's z (SPLIT_Z, published as
+          // rt._splitZ by the gfx host) the panel is scenery — behind the world's bodies AND click-through, so a
+          // press falls to the world underneath; at/above it the panel is foreground chrome and takes clicks.
+          f.el.style.zIndex = z;
+          f.el.style.pointerEvents = (z < rt._splitZ) ? "none" : "";
           // A zero-size rect is the DRIVER saying "not now" — hide it. (The button device uses the same rule.)
           if (w <= 0 || h <= 0) { f.el.style.display = "none"; return; }
           f.el.style.display = "";
@@ -552,8 +558,7 @@
           }
           f.scale = s;
         },
-        panel_be_sub(bid, layer, pass, ptr, n) {
-          if (layer !== pass) return;
+        panel_be_sub(bid, ptr, n) {
           const f = self.panels.get(bid);
           if (!f || !f.sub) return;
           const t = n > 0 ? self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n)) : "";
@@ -623,11 +628,11 @@
         // existing FIRST, and the panel is now created lazily on its first render, which happens after `open`
         // runs at boot: the element never found it, stayed a child of the root, and had panel-relative
         // coordinates applied absolutely — so it sat glued to the screen instead of scrolling with the world.
-        // z-index 6 keeps it above the foreground panel (5) it visually sits in.
-        textedit_be_place(x, y, w, h) {
+        // Depth is echoed from the driver's `z`, keeping it above the foreground panel it visually sits in.
+        textedit_be_place(x, y, w, h, z) {
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
           const ta = self.ta;
-          ta.style.zIndex = "6";
+          ta.style.zIndex = z;
           ta.style.left = (x * s) + "px";
           ta.style.top = (y * s) + "px";
           ta.style.width = (w * s) + "px";
@@ -672,9 +677,9 @@
       };
 
       return {
-        textview_be_render(bid, ptr, n, x, y, w, h) {
-          // The driver's rect is already in SCREEN space, so place it absolutely in the app root. z-index 6 keeps
-          // it above the foreground panel (5) it visually sits in.
+        textview_be_render(bid, ptr, n, x, y, w, h, z) {
+          // The driver's rect is already in SCREEN space, so place it absolutely in the app root. Depth is
+          // echoed from the driver's `z`, keeping it above the foreground panel it visually sits in.
           const el = get(bid);
           // A zero-size rect is the DRIVER saying "not now" — hide it (an info card collapsed shut).
           if (w <= 0 || h <= 0) { el.style.display = "none"; return; }
@@ -682,7 +687,7 @@
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           if (el.textContent !== t) el.textContent = t;
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
-          el.style.zIndex = "6";
+          el.style.zIndex = z;
           el.style.left = (x * s) + "px";
           el.style.top = (y * s) + "px";
           el.style.width = (w * s) + "px";
@@ -737,7 +742,7 @@
     seams(rt) {
       const self = this;
 
-      const get = (bid, layer) => {
+      const get = (bid) => {
         let e = self.btns.get(bid);
         if (e) return e;
         const b = document.createElement("button");
@@ -747,11 +752,11 @@
         // Only LAYOUT is inline (the driver owns the rect). APPEARANCE lives in the injected stylesheet below,
         // keyed off `.arche-btn` — inline styles beat author CSS, so baking the look in here would make the
         // button unskinnable by the page embedding it.
-        // Depth comes from the button's LAYER, straddling the two gfx canvases exactly as a panel's does: a
-        // background button (2) sits UNDER the world's foreground canvas, so the player walks in front of it,
-        // while a foreground control (6) floats over everything. A background button still takes clicks — the
+        // Depth is echoed from the driver's `z` per-frame in button_be_label, straddling the two gfx canvases
+        // exactly as a panel's does: a button below the foreground canvas's z sits UNDER it, so the player walks
+        // in front, while one above floats over everything. A background button still takes clicks — the
         // foreground canvas is pointer-events:none, so the press falls straight through to it.
-        b.style.cssText = "position:absolute;box-sizing:border-box;z-index:" + (layer === 0 ? 2 : 6) + ";";
+        b.style.cssText = "position:absolute;box-sizing:border-box;";
         // Appended to the app root, NOT into #ui-panel. The old host reparented into the panel div (which is
         // overflow:hidden) and positioned relative to it, so a button anchored anywhere else on the viewport —
         // an on-screen movement pad, say — was clipped out of existence. The driver's rect is already in the
@@ -795,8 +800,9 @@
       };
 
       return {
-        button_be_label(bid, layer, ptr, n, x, y, w, h) {
-          const e = get(bid, layer);
+        button_be_label(bid, z, ptr, n, x, y, w, h) {
+          const e = get(bid);
+          e.el.style.zIndex = z;
           const t = self.dec.decode(new Uint8Array(rt.memory().buffer, ptr, n));
           if (e.el.textContent !== t) e.el.textContent = t;
           // A ZERO-SIZED button is the driver saying "not now" (e.g. touch controls on a desktop). Hide it
@@ -810,8 +816,8 @@
           e.el.style.height = (h * s) + "px";
         },
         // `clicked` DRAINS (it is an edge, consumed once); `held` does not (it is a level, sampled).
-        button_be_clicked(bid) { const e = get(bid, 1); const c = e.clicked; e.clicked = false; return c ? 1 : 0; },
-        button_be_held(bid) { return get(bid, 1).held ? 1 : 0; },
+        button_be_clicked(bid) { const e = get(bid); const c = e.clicked; e.clicked = false; return c ? 1 : 0; },
+        button_be_held(bid) { return get(bid).held ? 1 : 0; },
       };
     },
   });
@@ -913,7 +919,7 @@
       };
 
       return {
-        embed_be_render(bid, sPtr, n, kind, x, y, w, h) {
+        embed_be_render(bid, sPtr, n, kind, x, y, w, h, z) {
           const c = get(bid, kind);
           // A zero-size rect is the DRIVER saying "not now" — hide it. Don't touch `src`: hiding must not
           // unload a site the visitor already opened.
@@ -922,7 +928,7 @@
 
           const s = rt._uiScale || window.innerHeight / (rt.renderH || 1080);
           const px = x * s, py = y * s, pw = w * s, ph = h * s;
-          c.el.style.zIndex = "6";
+          c.el.style.zIndex = z;
           c.el.style.left = px + "px";
           c.el.style.top = py + "px";
           c.el.style.width = pw + "px";

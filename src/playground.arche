@@ -79,9 +79,6 @@ layout :: system eff {
         pad2 := pad * coarse;
         pw2 := select(bid == BTN_RUN, BTN_W, select(bid == BTN_RESET, BTN_W, pad2));
         ph2 := select(bid == BTN_RUN, BTN_H, select(bid == BTN_RESET, BTN_H, pad2));
-        // This query matches EVERY button row, and a SiteButton is a superset of a Button — so without this
-        // gate the fall-through branch (`cx` / `pady`) would drag every site card's OPEN button into the
-        // playground each frame. The site buttons are laid out from their own world anchor, in `cards.arche`.
         mine := select(bid <= BTN_RESET, 1, 0);
         screen.x = select(mine == 1, bx, screen.x);
         screen.y = select(mine == 1, by, screen.y);

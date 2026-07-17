@@ -8,8 +8,8 @@ WWWDEPS := www/wasi.js www/analyzer/wasi-fs.js www/analyzer/arche-compile.wasm w
 all: serve
 
 GFX ?= x11
-TEXTEDIT ?= window
-TEXTVIEW ?= window
+TEXTEDIT ?= cmd
+TEXTVIEW ?= cmd
 dev-osin:  TEXTEDIT = x11in
 dev-osgtk: TEXTEDIT = x11gtk
 dev-osgtk: TEXTVIEW = x11gtk
@@ -17,7 +17,7 @@ SRC := $(wildcard src/*.arche)
 
 dev dev-osin dev-osgtk: $(SRC)
 	@mkdir -p build
-	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=window,textedit=$(TEXTEDIT),textview=$(TEXTVIEW),button=window,embed=window,compiler=clib \
+	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=cmd,textedit=$(TEXTEDIT),textview=$(TEXTVIEW),button=cmd,embed=cmd,paint=native,compiler=clib \
 	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
 	ARCHE_BIN=$(ARCHE) ./build/portfolio-dev
 

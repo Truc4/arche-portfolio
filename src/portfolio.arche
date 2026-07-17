@@ -1,5 +1,5 @@
-#import { gfx camera vec os text ui panel textedit textview button embed compiler rigid
-          "./render" "./physics" "./camview" "./input" "./playground" "./cards" }
+#import { gfx camera vec os text ui panel textedit textview button embed compiler rigid paint
+          "./render" "./physics" "./camview" "./input" "./playground" "./cards" "./paintbuf" }
 
 H            :: 1080;
 MAXW         :: 4096;
@@ -18,6 +18,26 @@ SIM_ON_X     :: 1000.0;
 PAR_HILL     :: 0.5;
 PLAYER_Y     :: 1089.0;
 PW           :: 102;
+
+Z_HILL         :: 100;
+Z_ROUND        :: 110;
+Z_PROP         :: 120;
+Z_WEDGE        :: 130;
+Z_SCENERY_TEXT :: 200;
+Z_BG_PANEL     :: 300;
+Z_BG_BUTTON    :: 310;
+Z_SOLID        :: 500;
+Z_GROUND       :: 510;
+Z_BOX          :: 520;
+Z_BALL         :: 530;
+Z_PLAYER       :: 540;
+Z_FG_PANEL     :: 600;
+Z_FG_BUTTON    :: 610;
+Z_EMBED        :: 620;
+Z_TEXTVIEW     :: 620;
+Z_TEXTEDIT     :: 620;
+Z_POPUP        :: 700;
+Z_POPUP_BODY   :: 720;
 
 WORLD_LMAG  :: 3800.0;
 WORLD_R     :: 10000.0;
@@ -86,6 +106,7 @@ tlen   :: int;
 twx    :: float;
 twy    :: float;
 tplx   :: float;
+tz     :: int;
 bsx    :: int;
 bsy    :: int;
 bhw    :: int;
@@ -150,7 +171,7 @@ Focus       :: arche { fown, fwas, fpress, fcam }
 Touch       :: arche { tax, tjump }
 Window      :: arche { handle, bg, gkey }
 Framebuffer :: arche { framebuffer :: [MAXW * H]int }
-Sign        :: arche { twx, twy, tplx, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
+Sign        :: arche { twx, twy, tplx, tz, tx, ty, tstr :: [64]char, tlen, tsz, tcol }
 
 [4]Back(1);
 [48]Prop(6);
@@ -265,12 +286,12 @@ EMB_1 :: 1;
 EMB_2 :: 2;
 EMB_3 :: 3;
 
-Panel  :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view }
-Editor :: arche { screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
-Output :: arche { bid, screen, size, output :: [4096]char, len, view, bg, fg }
+Panel  :: arche { bid, z, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view }
+Editor :: arche { z, screen, size, source :: [4096]char, len, cursor, submit, key, view, bg, fg }
+Output :: arche { bid, z, screen, size, output :: [4096]char, len, view, bg, fg }
 Button :: arche {
   bid,
-  layer,
+  z,
   screen,
   size,
   label :: [8]char,
@@ -282,10 +303,10 @@ Button :: arche {
   mouse_down,
   view,
 }
-SiteButton :: arche { bid, layer, screen, size, label :: [8]char, len, clicked, held, wasdown, mouse, mouse_down, view, iwx, iwy, iw, ih }
-InfoPanel :: arche { bid, layer, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog, iw, ih, ipin }
-InfoBody  :: arche { bid, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog, iw, ih, ipin }
-Embed     :: arche { bid, screen, size, view, esrc :: [96]char, elen, elink :: [96]char, ellen, ekind, iwx, iwy, iprog, iw, ih, ipin, efocus, epanel, eopen, ebtn }
+SiteButton :: arche { bid, z, screen, size, label :: [8]char, len, clicked, held, wasdown, mouse, mouse_down, view, iwx, iwy, iw, ih }
+InfoPanel :: arche { bid, z, screen, size, title :: [24]char, len, sub :: [48]char, sublen, view, iwx, iwy, iprog, iw, ih, ipin }
+InfoBody  :: arche { bid, z, screen, size, output :: [1024]char, len, view, iwx, iwy, iprog, iw, ih, ipin }
+Embed     :: arche { bid, z, screen, size, view, esrc :: [96]char, elen, elink :: [96]char, ellen, ekind, iwx, iwy, iprog, iw, ih, ipin, efocus, epanel, eopen, ebtn }
 [4]Panel ?abort;
 [2]Editor ?abort;
 [2]Output ?abort;
@@ -297,6 +318,7 @@ Embed     :: arche { bid, screen, size, view, esrc :: [96]char, elen, elink :: [
 
 boot :: system eff {
   gfx.open(W, H, "arche-wasm scene")(win:);
+  gfx.layers(win, 0, ui.SPLIT_Z)(_:);
   insert(Window { handle: win, bg: CANVAS, gkey: 0 });
 }
 
@@ -464,6 +486,7 @@ seed_text :: system eff {
       tlen : 10,
       tsz  : 112,
       tcol : 0xffffff,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -477,6 +500,7 @@ seed_text :: system eff {
       tlen : 18,
       tsz  : 42,
       tcol : CLOUD,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -490,6 +514,7 @@ seed_text :: system eff {
       tlen : 11,
       tsz  : 46,
       tcol : CLOUD,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -503,6 +528,7 @@ seed_text :: system eff {
       tlen : 18,
       tsz  : 40,
       tcol : PLAYER,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -516,6 +542,7 @@ seed_text :: system eff {
       tlen : 10,
       tsz  : 60,
       tcol : S6,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -529,6 +556,7 @@ seed_text :: system eff {
       tlen : 13,
       tsz  : 44,
       tcol : CLOUD,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -542,6 +570,7 @@ seed_text :: system eff {
       tlen : 16,
       tsz  : 44,
       tcol : S5,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -555,6 +584,7 @@ seed_text :: system eff {
       tlen : 13,
       tsz  : 42,
       tcol : PLAYER,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -568,6 +598,7 @@ seed_text :: system eff {
       tlen : 8,
       tsz  : 42,
       tcol : CLOUD,
+      tz   : Z_SCENERY_TEXT,
       tx   : 0,
       ty   : 0,
     },
@@ -576,7 +607,7 @@ seed_text :: system eff {
 
 seed_playground :: system eff {
   insert(Panel {
-    bid: PANEL_PLAY, layer: 1,
+    bid: PANEL_PLAY, z: Z_FG_PANEL,
     screen: (0, 0), size: (0, 0),
     title: "PLAYGROUND", len: 10,
     sub: "WRITE ARCHE - CTRL+ENTER TO RUN", sublen: 31,
@@ -586,7 +617,7 @@ seed_playground :: system eff {
     _ok : ,
   );
   insert(Panel {
-    bid: PANEL_SAND, layer: 0,
+    bid: PANEL_SAND, z: Z_BG_PANEL,
     screen: (0, 0), size: (0, 0),
     title: "RIGID BODY SANDBOX", len: 18,
     sub: "ARROWS TO MOVE - UP TO JUMP", sublen: 27,
@@ -597,6 +628,7 @@ seed_playground :: system eff {
   );
   insert(
     Editor {
+      z      : Z_TEXTEDIT,
       screen : (0, 0),
       size   : (0, 0),
       source : "#import { fmt }\n\ngo :: system eff {\n  fmt.printf(\"result = %d\\n\", 6 * 7);\n}\n\n#run seq({ go })",
@@ -612,6 +644,7 @@ seed_playground :: system eff {
   insert(
     Output {
       bid    : OUT_BID,
+      z      : Z_TEXTVIEW,
       screen : (0, 0),
       size   : (0, 0),
       output : "",
@@ -624,7 +657,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RUN,
-      layer      : 1,
+      z          : Z_FG_BUTTON,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "RUN",
@@ -640,7 +673,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_LEFT,
-      layer      : 1,
+      z          : Z_FG_BUTTON,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -656,7 +689,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RIGHT,
-      layer      : 1,
+      z          : Z_FG_BUTTON,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -672,7 +705,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_RESET,
-      layer      : 0,
+      z          : Z_BG_BUTTON,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "RESET",
@@ -688,7 +721,7 @@ seed_playground :: system eff {
   insert(
     Button {
       bid        : BTN_JUMP,
-      layer      : 1,
+      z          : Z_FG_BUTTON,
       screen     : (0, 0),
       size       : (0, 0),
       label      : "-",
@@ -743,61 +776,61 @@ seed_cards :: system eff {
   insert(Prop { pos: (EMB_WX2, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
   insert(Prop { pos: (EMB_WX3, 1035.0), rw: 260, rh: 90, rcolor: BOARD_COL, plx: 1.0, rx: 0, ry: 0 })(_:, _ok:);
 
-  insert(Sign { twx: 2100.0, twy: 1027.0, tplx: 1.0, tstr: "ABOUT",         tlen:  5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx:  900.0, twy: 1027.0, tplx: 1.0, tstr: "ARCHE + WASM",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: TAIL_X0, twy: 1027.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: 200.0, twy: 1027.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: TAIL_X2, twy: 1027.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: TAIL_X1, twy: 1027.0, tplx: 1.0, tstr: "THE LANGUAGE",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: EMB_WX0, twy: 1027.0, tplx: 1.0, tstr: "2018", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: EMB_WX1, twy: 1027.0, tplx: 1.0, tstr: "2019", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: EMB_WX2, twy: 1027.0, tplx: 1.0, tstr: "2022", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: EMB_WX3, twy: 1027.0, tplx: 1.0, tstr: "2026", tlen: 4, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: ARROW_L, twy: 1027.0, tplx: 1.0, tstr: "DEMOS",    tlen: 5, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
-  insert(Sign { twx: ARROW_R, twy: 1027.0, tplx: 1.0, tstr: "TIMELINE", tlen: 8, tsz: 16, tcol: BOARD_TXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 2100.0, twy: 1027.0, tplx: 1.0, tstr: "ABOUT",         tlen:  5, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx:  900.0, twy: 1027.0, tplx: 1.0, tstr: "ARCHE + WASM",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X0, twy: 1027.0, tplx: 1.0, tstr: "DATA-ORIENTED", tlen: 13, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: 200.0, twy: 1027.0, tplx: 1.0, tstr: "RIGID BODIES",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X2, twy: 1027.0, tplx: 1.0, tstr: "SAY HELLO",     tlen:  9, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: TAIL_X1, twy: 1027.0, tplx: 1.0, tstr: "THE LANGUAGE",  tlen: 12, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX0, twy: 1027.0, tplx: 1.0, tstr: "2018", tlen: 4, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX1, twy: 1027.0, tplx: 1.0, tstr: "2019", tlen: 4, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX2, twy: 1027.0, tplx: 1.0, tstr: "2022", tlen: 4, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: EMB_WX3, twy: 1027.0, tplx: 1.0, tstr: "2026", tlen: 4, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_L, twy: 1027.0, tplx: 1.0, tstr: "DEMOS",    tlen: 5, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
+  insert(Sign { twx: ARROW_R, twy: 1027.0, tplx: 1.0, tstr: "TIMELINE", tlen: 8, tsz: 16, tcol: BOARD_TXT, tz: Z_SCENERY_TEXT, tx: 0, ty: 0 })(_:, _ok:);
 
   insert(Wedge { wpx: ARROW_L - 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 0 - 1, wsx: 0, wsy: 0 })(_:, _ok:);
   insert(Wedge { wpx: ARROW_R + 60.0, wpy: 1035.0, whw: 88, whh: 61, wcol: BOARD_EDGE, wdir: 1, wsx: 0, wsy: 0 })(_:, _ok:);
   insert(Wedge { wpx: ARROW_L - 60.0, wpy: 1035.0, whw: 80, whh: 53, wcol: BOARD_COL, wdir: 0 - 1, wsx: 0, wsy: 0 })(_:, _ok:);
   insert(Wedge { wpx: ARROW_R + 60.0, wpy: 1035.0, whw: 80, whh: 53, wcol: BOARD_COL, wdir: 1, wsx: 0, wsy: 0 })(_:, _ok:);
 
-  insert(InfoPanel { bid: INFO_P0, layer: 1, screen: (0,0), size: (0,0), title: "ABOUT THIS SITE", len: 15, sub: "built from the language up",       sublen: 26, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P1, layer: 1, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P2, layer: 1, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P3, layer: 1, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P5, layer: 1, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: INFO_P6, layer: 1, screen: (0,0), size: (0,0), title: "THE LANGUAGE",  len: 12, sub: "static, data-oriented, no heap",   sublen: 30, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P0, z: Z_POPUP, screen: (0,0), size: (0,0), title: "ABOUT THIS SITE", len: 15, sub: "built from the language up",       sublen: 26, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P1, z: Z_POPUP, screen: (0,0), size: (0,0), title: "ARCHE + WASM",  len: 12, sub: "the playground below is live",     sublen: 28, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P2, z: Z_POPUP, screen: (0,0), size: (0,0), title: "DATA-ORIENTED", len: 13, sub: "no objects, no garbage collector", sublen: 32, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P3, z: Z_POPUP, screen: (0,0), size: (0,0), title: "RIGID BODIES",  len: 12, sub: "the sandbox is real physics",      sublen: 27, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P5, z: Z_POPUP, screen: (0,0), size: (0,0), title: "SAY HELLO",     len:  9, sub: "find me here",                    sublen: 12, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: INFO_P6, z: Z_POPUP, screen: (0,0), size: (0,0), title: "THE LANGUAGE",  len: 12, sub: "static, data-oriented, no heap",   sublen: 30, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
 
-  insert(InfoPanel { bid: EMB_P0, layer: 1, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "2018.curtreyes.com/portfolio", sublen: 28, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
-  insert(InfoPanel { bid: EMB_P1, layer: 1, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "2018.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
-  insert(InfoPanel { bid: EMB_P2, layer: 1, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "2022.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
-  insert(InfoPanel { bid: EMB_P3, layer: 1, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "you are here",                 sublen: 12, view: (0,0), iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P0, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "2018.curtreyes.com/portfolio", sublen: 28, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P1, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "2018.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P2, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "2022.curtreyes.com",           sublen: 18, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
+  insert(InfoPanel { bid: EMB_P3, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "you are here",                 sublen: 12, view: (0,0), iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1 })(_:, _ok:);
 
-  insert(InfoPanel { bid: SITE_P0, layer: 1, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "pure html, css, js",    sublen: 18, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: SITE_P1, layer: 1, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "bootstrap, unfinished", sublen: 21, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: SITE_P2, layer: 1, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "wordpress",             sublen:  9, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoPanel { bid: SITE_P3, layer: 1, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "arche, wasm, WIP",      sublen: 16, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P0, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2018", len: 4, sub: "pure html, css, js",    sublen: 18, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P1, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2019", len: 4, sub: "bootstrap, unfinished", sublen: 21, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P2, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2022", len: 4, sub: "wordpress",             sublen:  9, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoPanel { bid: SITE_P3, z: Z_FG_PANEL, screen: (0,0), size: (0,0), title: "2026", len: 4, sub: "arche, wasm, WIP",      sublen: 16, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
 
-  insert(InfoBody { bid: INFO_B0, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B1, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B2, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B3, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n8 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B5, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: INFO_B6, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B0, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "My personal website, in a custom web framework\nand a custom language (Arche).\n\nMove with the arrow keys or the buttons.\nScroll or swipe to pan the world.\n\nLEFT: live demos and a playground.\nRIGHT: a timeline of past projects.\n\nThe native build is a real optimized binary,\nfrom the same source, not a bundled browser.", len: 0, view: (0,0), iwx: 2100.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B1, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "The whole page is ONE arche program\ncompiled to a single WebAssembly module.\nThe editor above runs that same compiler\nin your browser. Edit it, hit RUN, see output.", len: 0, view: (0,0), iwx:  900.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B2, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "State lives in typed COLUMN pools (ECS).\nSystems are queries over those columns -\nstructs of arrays the CPU streams through.\nNo objects, no vtables, no allocator churn.", len: 0, view: (0,0), iwx: TAIL_X0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B3, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "A substepped TGS-soft velocity solver:\n8 substeps a frame, boxes and circles.\nThe player is a rigid body too. It tumbles,\ngets shoved, and has to jump the stairs.", len: 0, view: (0,0), iwx: 200.0, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B5, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "github.com/Truc4\ncurt.reyes.dev@gmail.com\n\nThis whole site is one arche program.\nThanks for walking through it.", len: 0, view: (0,0), iwx: TAIL_X2, iwy: 985.0, iprog: 0.0 , iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: INFO_B6, z: Z_POPUP_BODY, screen: (0,0), size: (0,0), output: "A 100% static, ECS-inspired data language.\nA query over {components} is a compile-time\nabstraction that lowers to a column loop.\n\nEffects are flat and marked (eff), never\nnested. Pure funcs compose and dedup the\nlogic that systems cannot nest.\n\nEvery system is a kernel by design. The\nbuild-time mapper finds each column's home\n(Rust-style ownership) and how to fan it.", len: 0, view: (0,0), iwx: TAIL_X1, iwy: 985.0, iprog: 0.0, iw: INFO_W, ih: INFO_H , ipin: 0 })(_:, _ok:);
 
-  insert(InfoBody { bid: SITE_B0, screen: (0,0), size: (0,0), output: "Made with pure HTML, CSS and JS, during\nhigh school. No framework, no build step.\n\nClick the sparkles to start. Arrow keys to\nmove. Enter to go into doors and see my games.", len: 0, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: SITE_B1, screen: (0,0), size: (0,0), output: "Made a year later, for a more traditional\nportfolio. Built with Bootstrap.\n\nI never finished it.", len: 0, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: SITE_B2, screen: (0,0), size: (0,0), output: "Made after working as a web designer.\nBuilt on Wordpress.\n\nShown as a screenshot, not live: its TLS\ncertificate is expired, so a browser will\nnot frame it. Click it to open the site.", len: 0, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
-  insert(InfoBody { bid: SITE_B3, screen: (0,0), size: (0,0), output: "The site you are walking through now.\n\nMade with arche, my own language, compiled\nto WebAssembly. The same source also runs\nnatively.\n\nStill a work in progress.", len: 0, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B0, z: Z_TEXTVIEW, screen: (0,0), size: (0,0), output: "Made with pure HTML, CSS and JS, during\nhigh school. No framework, no build step.\n\nClick the sparkles to start. Arrow keys to\nmove. Enter to go into doors and see my games.", len: 0, view: (0,0), iwx: EMB_WX0, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B1, z: Z_TEXTVIEW, screen: (0,0), size: (0,0), output: "Made a year later, for a more traditional\nportfolio. Built with Bootstrap.\n\nI never finished it.", len: 0, view: (0,0), iwx: EMB_WX1, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B2, z: Z_TEXTVIEW, screen: (0,0), size: (0,0), output: "Made after working as a web designer.\nBuilt on Wordpress.\n\nShown as a screenshot, not live: its TLS\ncertificate is expired, so a browser will\nnot frame it. Click it to open the site.", len: 0, view: (0,0), iwx: EMB_WX2, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
+  insert(InfoBody { bid: SITE_B3, z: Z_TEXTVIEW, screen: (0,0), size: (0,0), output: "The site you are walking through now.\n\nMade with arche, my own language, compiled\nto WebAssembly. The same source also runs\nnatively.\n\nStill a work in progress.", len: 0, view: (0,0), iwx: EMB_WX3, iwy: CARD_WY, iprog: 0.0, iw: SITE_W, ih: SITE_H, ipin: 0 })(_:, _ok:);
 
-  insert(Embed { bid: EMB_0, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/portfolio/", elen: 0, elink: "https://2018.curtreyes.com/portfolio/",                          ellen: 0, ekind: 0, iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P0, eopen: 0, ebtn: BTN_OPEN0 })(_:, _ok:);
-  insert(Embed { bid: EMB_1, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/",           elen: 0, elink: "https://2018.curtreyes.com/",                          ellen: 0, ekind: 0, iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P1, eopen: 0, ebtn: BTN_OPEN1 })(_:, _ok:);
-  insert(Embed { bid: EMB_2, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2022.png",                        elen: 0, elink: "http://2022.curtreyes.com", ellen: 0, ekind: 1, iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P2, eopen: 0, ebtn: BTN_OPEN2 })(_:, _ok:);
-  insert(Embed { bid: EMB_3, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2026.png",                        elen: 0, elink: "",                          ellen: 0, ekind: 1, iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P3, eopen: 0, ebtn: 0 - 1 })(_:, _ok:);
+  insert(Embed { bid: EMB_0, z: Z_EMBED, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/portfolio/", elen: 0, elink: "https://2018.curtreyes.com/portfolio/",                          ellen: 0, ekind: 0, iwx: EMB_WX0, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P0, eopen: 0, ebtn: BTN_OPEN0 })(_:, _ok:);
+  insert(Embed { bid: EMB_1, z: Z_EMBED, screen: (0,0), size: (0,0), view: (0,0), esrc: "https://2018.curtreyes.com/",           elen: 0, elink: "https://2018.curtreyes.com/",                          ellen: 0, ekind: 0, iwx: EMB_WX1, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P1, eopen: 0, ebtn: BTN_OPEN1 })(_:, _ok:);
+  insert(Embed { bid: EMB_2, z: Z_EMBED, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2022.png",                        elen: 0, elink: "http://2022.curtreyes.com", ellen: 0, ekind: 1, iwx: EMB_WX2, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P2, eopen: 0, ebtn: BTN_OPEN2 })(_:, _ok:);
+  insert(Embed { bid: EMB_3, z: Z_EMBED, screen: (0,0), size: (0,0), view: (0,0), esrc: "shots/2026.png",                        elen: 0, elink: "",                          ellen: 0, ekind: 1, iwx: EMB_WX3, iwy: EMB_WY, iprog: 1.0, iw: EMB_W, ih: EMB_H, ipin: 1, efocus: 0, epanel: EMB_P3, eopen: 0, ebtn: 0 - 1 })(_:, _ok:);
 
-  insert(SiteButton { bid: BTN_OPEN0, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
-  insert(SiteButton { bid: BTN_OPEN1, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
-  insert(SiteButton { bid: BTN_OPEN2, layer: 1, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN0, z: Z_FG_BUTTON, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX0, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN1, z: Z_FG_BUTTON, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX1, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
+  insert(SiteButton { bid: BTN_OPEN2, z: Z_FG_BUTTON, screen: (0,0), size: (0,0), label: "OPEN", len: 4, clicked: 0, held: 0, wasdown: 0, mouse: (0,0), mouse_down: 0, view: (0,0), iwx: EMB_WX2, iwy: EMB_WY, iw: EMB_W, ih: EMB_H })(_:, _ok:);
 }
 
 #run {
@@ -847,6 +880,15 @@ seed_cards :: system eff {
             info_layout,
             site_btn_layout,
             ui_input,
+            textedit.step,
+            textedit.text,
+            textedit.poll_run,
+            button.poll,
+            site_open,
+            embed.open,
+            run_button,
+            reset_arena,
+            run_it,
             project,
             project_wedge,
             project_hill,
@@ -863,28 +905,24 @@ seed_cards :: system eff {
             gfx.rect,
             draw_wedge,
             text.render,
-            panel.render_bg,
-            button.render_bg,
+            paint_reset,
+            panel.render,
+            button.render,
+            textview.render,
+            textedit.render,
+            embed.render,
+            paint_order,
+            paint_bg,
+            paint.dispatch,
             gfx.split,
             draw_solid,
             draw_ground,
             draw_rbox,
             draw_ball,
             draw_player,
-            textedit.step,
-            textedit.text,
-            textedit.poll_run,
-            button.poll,
-            site_open,
-            embed.open,
-            run_button,
-            reset_arena,
-            run_it,
-            panel.render,
-            textedit.render,
-            button.render,
-            textview.render,
-            embed.render,
+            paint_fg,
+            paint.dispatch,
+            paint_drain,
             gfx.present,
             gfx.poll,
             done,
