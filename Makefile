@@ -17,7 +17,7 @@ SRC := $(wildcard src/*.arche)
 
 dev dev-osin dev-osgtk: $(SRC)
 	@mkdir -p build
-	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=window,textedit=$(TEXTEDIT),textview=$(TEXTVIEW),button=window,embed=window,compiler=clib \
+	ARCHE_SELECT=gfx=$(GFX),text=framebuffer,panel=cmd,textedit=cmd,textview=cmd,button=cmd,embed=cmd,paint=native,compiler=clib \
 	  $(ARCHE) build -o build/portfolio-dev src/portfolio.arche
 	ARCHE_BIN=$(ARCHE) ./build/portfolio-dev
 
